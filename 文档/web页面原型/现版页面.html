@@ -1,0 +1,28 @@
+<!--
+  零碳新风系统 —— ESP32 网页「现版」静态还原
+  ============================================
+  本文件是从 代码/ZeroCarbonFan/ZeroCarbonFan.ino 的 loop() 里
+  逐行 client.println() 的内容**原样还原**出来的，未做任何美化。
+
+  还原时的代入值：
+    pm25        = 42        （对应代码 String(pm25)）
+    relayState  = LOW       （对应风扇「运行中」，绿色那行）
+
+  另一种状态（风扇停止）只是这一行不同，颜色和文字换掉即可：
+    <p style='font-size: 20px; color:red;'>风扇状态: <strong>已停止 (OFF)</strong></p>
+
+  用浏览器直接打开本文件，看到的就是手机连上 ESP32 热点后、
+  访问 http://192.168.4.1 时屏幕上显示的样子。
+-->
+<!DOCTYPE html><html>
+<head><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta charset='UTF-8'>
+<title>零碳新风控制系统</title>
+<style>body { font-family: Arial; text-align: center; margin-top: 50px;} button { font-size: 24px; padding: 15px 30px; margin: 10px; border-radius: 10px; border: none; color: white;} </style>
+</head><body>
+<h1>零碳新风系统</h1>
+<p style='font-size: 20px;'>当前 PM2.5 数值: <strong style='color:blue;'>42</strong> ug/m3</p>
+<p style='font-size: 20px; color:green;'>风扇状态: <strong>运行中 (ON)</strong></p>
+<p><a href="/ON"><button style='background-color:green;'>开启风扇</button></a></p>
+<p><a href="/OFF"><button style='background-color:red;'>关闭风扇</button></a></p>
+</body></html>
