@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+
+# OS files
+.DS_Store
+Thumbs.db
+~$*
+
+# Claude Code / OMC
+.omc/
+.playwright-cli/
+.claude/settings.local.json
+
+# IDE
+.vscode/
+.idea/
+
+# Environment
+.env
+.env.*
+
+# Hermes 本地进度日志（每机器私有，不进版本库）
+.hermes-progress
