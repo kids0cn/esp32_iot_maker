@@ -47,18 +47,21 @@
 
 ## 常用命令
 
+⚠️ **编译烧录由用户在 Windows 端自己做**（VS Code + PlatformIO）。本机 WSL2 **没有可用的编译工具链**，不要试图在本机编译。
+
 ```bash
-# 用 arduino-cli（本机已装）编译 v2：
-~/.local/bin/arduino-cli compile --fqbn esp32:esp32:esp32 代码/ZeroCarbonFan_v2
-
-# 原版同理，把路径换成 代码/ZeroCarbonFan
-# 开发板选：ESP32 Dev Module    串口波特率：115200
-
 # 改完网页要同步更新离线预览（否则预览和固件会对不上）：
 python3 工具/生成网页预览.py
 ```
 
-**Arduino IDE 打开**：文件夹名必须与 `.ino` 同名，否则 IDE 打不开。
+**本机 WSL2 只负责**：写代码、跑上面这个预览生成脚本、用无头浏览器截图验证网页。
+**用户负责**：编译、烧录、上板实测 —— 有报错他会贴过来。
+
+### 关于项目结构（用户已定）
+
+**不加 `platformio.ini`，不改目录结构。** 仓库保持裸 Arduino sketch 形态：
+`代码/<sketch名>/<sketch名>.ino`，文件夹名与 `.ino` 同名（Arduino IDE 的要求）。
+PlatformIO 工程由用户自己在 VS Code 里组织 —— **别擅自加 `platformio.ini` 或把 `.ino` 挪进 `src/`**。
 
 ## ⚠️ 约定
 
