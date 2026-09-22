@@ -7,6 +7,8 @@
  *   1. ESP32 自己开一个 WiFi 热点（不是连家里的路由器）
  *   2. 起一个网页服务器，把 include/index_html.h 里的页面发出去
  *   3. 实现页面要调的 5 个接口，让按钮、模式切换真的有反应
+ *   4. 强制门户（Captive Portal）：手机一连上就自动弹出控制页
+ *      —— 就是酒店/机场 WiFi 登录弹窗那套机制
  *
  * ── 哪些是真的、哪些还是空的（重要，别当真） ──
  *   ✅ WiFi 热点        —— 真的
@@ -21,11 +23,21 @@
  *   一旦在 loop 里 delay()，这段时间网页请求就全被堵住，
  *   手机上表现为「点了没反应 / 转圈 / 连接中断」。
  *   所以这里只 handleClient()，要做定时的事一律用 millis() 比时间。
+ *   DNS 服务同理 —— dnsServer.processNextRequest() 也必须频繁调用。
+ *
+ * ── 弹窗能做到什么程度（实测才知道，别抱太大期望） ──
+ *   iPhone / 原生 Android：基本都会自动弹。
+ *   国产 ROM（MIUI / ColorOS / EMUI / 鸿蒙）：经常不弹，或只弹一次，
+ *     多数要手动点一下已连上的 WiFi 名称才出登录页。
+ *   所有手机都会提示「已连接，无互联网」—— 没接上游网络，正常。
+ *   弹出来的是系统内置小窗浏览器，地址栏被锁；真正操作还是建议
+ *   手动开 http://192.168.4.1 体验更好。
  */
 
 #include <Arduino.h>
 #include <WiFi.h>
 #include <WebServer.h>
+#include <DNSServer.h>
 #include "index_html.h"
 
 // ================== WiFi 热点配置 ==================
@@ -35,6 +47,18 @@ const char* WIFI_SSID = "ZeroCarbon";   // 热点名（手机 WiFi 列表里看�
 const char* WIFI_PASS = "12345678";     // 密码
 
 WebServer server(80);
+
+// ================== 通配 DNS（强制门户的关键） ==================
+// 手机连上热点后，会主动去请求公网上的探测地址来判断「要不要登录」，
+// 例如 Android 的 connectivitycheck.gstatic.com/generate_204。
+// 这些域名本来就解析不到你这儿 —— 不开 DNS 的话，探测请求根本到不了
+// 板子，系统只会说「无互联网」，永远不会弹窗。
+//
+// 通配 DNS 的作用：**把任何域名都答成 192.168.4.1**，
+// 于是探测请求就被骗到本机，由我们的路由接管。
+// "*" 是通配，53 是 DNS 标准端口。DNSServer 是 ESP32 核心自带的，不用装库。
+const byte DNS_PORT = 53;
+DNSServer dnsServer;
 
 // ================== 运行状态 ==================
 // 全部只放在 RAM 里：断电或复位就回到默认值。
@@ -95,8 +119,23 @@ void setupServer() {
     server.send(204, "text/plain", "");
   });
 
+  // ===== 强制门户：凡是没匹配上的路径，一律 302 跳回首页 =====
+  //
+  // 手机的连通性探测全部落到这里。各系统要的路径不一样：
+  //   Android  /generate_204           期望 HTTP 204 空响应
+  //   iOS      /hotspot-detect.html    期望一个特定的成功页
+  //   Windows  /connecttest.txt /ncsi.txt
+  //   Firefox  /success.txt /canonical.html
+  // 我们**故意不按预期回答**，改成 302 重定向 —— 系统就判定
+  // 「这是需要登录的网络」，于是自动弹出内置浏览器加载首页。
+  //
+  // 用 onNotFound 兜底而不是逐个列举：探测地址会随系统版本变，
+  // 兜底能覆盖所有变体，也不用以后每出一个新地址就改一次代码。
   server.onNotFound([]() {
-    server.send(404, "text/plain", "Not Found");
+    server.sendHeader("Location",
+                      String("http://") + WiFi.softAPIP().toString() + "/",
+                      true);
+    server.send(302, "text/plain", "");
   });
 
   server.begin();
@@ -109,10 +148,17 @@ void setup() {
   // 开热点。softAP 内部默认分配 192.168.4.1，不用额外配。
   WiFi.softAP(WIFI_SSID, WIFI_PASS);
 
+  // 通配 DNS **必须放在 softAP() 之后** —— 它要绑定到热点 IP，
+  // 热点还没起来时拿不到 192.168.4.1，start() 会失败。
+  //
+  // 至于它和 setupServer() 谁先谁后：无所谓。两者都只是「注册」，
+  // 真正开始收发要等 loop() 跑起来，那时两边都已经就绪了。
+  bool dnsOk = dnsServer.start(DNS_PORT, "*", WiFi.softAPIP());
+
   setupServer();
 
   Serial.println();
-  Serial.println("零碳新风智能家居系统 v3");
+  Serial.println("零碳新风智能家居系统 v4");
   Serial.println("热点已启动");
   Serial.print("  热点名：");
   Serial.println(WIFI_SSID);
@@ -120,10 +166,13 @@ void setup() {
   Serial.println(WIFI_PASS);
   Serial.print("  手机连上后访问：http://");
   Serial.println(WiFi.softAPIP());
+  Serial.print("  强制门户 DNS：");
+  Serial.println(dnsOk ? "已启动（连上可能自动弹页）" : "启动失败 —— 不会自动弹窗，只能手动开地址");
   Serial.println();
 }
 
 // ================== 主循环 ==================
 void loop() {
-  server.handleClient();   // 必须频繁调用，中间不能塞 delay()
+  dnsServer.processNextRequest();  // 处理 DNS 查询，同样不能停
+  server.handleClient();           // 必须频繁调用，中间不能塞 delay()
 }
