@@ -14,6 +14,7 @@
 | 网页预览（离线可点） | `文档/web页面原型/v2页面.html` |
 | 固件源码 | 原版 `代码/ZeroCarbonFan/` ｜ v2 `代码/ZeroCarbonFan_v2/` |
 | 器件照片与商品页截图 | `文档/传感器/*.jpg` |
+| **板卡引脚图**（ESP32 CP2102 TYPE-C） | `文档/板卡/esp32_cp2102_引脚图.jpg` ← **选引脚看这张** |
 | 系统组成概览 / 学习目标 | `README.md` |
 | Hermes 进度日志 | `~/.hermes/shared/projects/logs/中学生物联网创客项目.md` |
 
