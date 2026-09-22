@@ -1,5 +1,5 @@
 /*
- * 零碳新风系统 v2 —— ESP32 智能家居模拟装置
+ * 零碳新风智能家居系统 v2 —— ESP32 智能家居模拟装置
  * ============================================
  * 本文件是 `代码/ZeroCarbonFan/ZeroCarbonFan.ino`（原版）的重写版。
  * 原版原样保留、未改动，两份可以对照着看。
@@ -141,7 +141,7 @@ const char INDEX_HTML[] = R"rawliteral(
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>零碳新风系统</title>
+<title>零碳新风智能家居系统</title>
 <style>
   :root{
     --bg:#0b1220; --card:#16213a; --line:#243354;
@@ -200,7 +200,7 @@ const char INDEX_HTML[] = R"rawliteral(
 </head>
 <body>
 <div class="wrap">
-  <h1>零碳新风系统</h1>
+  <h1>零碳新风智能家居系统</h1>
   <div id="conn" class="conn">连接中…</div>
 
   <div class="card pm">
@@ -379,7 +379,7 @@ void setup() {
   WiFi.softAP(ssid, password);
 
   Serial.println();
-  Serial.println("零碳新风系统 v2");
+  Serial.println("零碳新风智能家居系统 v2");
   Serial.print("热点已启动，请连上 ");
   Serial.print(ssid);
   Serial.print(" 后访问 http://");
