@@ -33,7 +33,7 @@
 工具/生成网页预览.py                          # 从固件抽 HTML 生成预览
 ```
 
-**框架是 Arduino（ESP32 core），每个 sketch 单 `.ino` 文件，没有 PlatformIO 工程。**
+**框架是 Arduino（ESP32 core），每个 sketch 单 `.ino` 文件。**
 
 ### 三份代码的关系
 
@@ -59,9 +59,13 @@ python3 工具/生成网页预览.py
 
 ### 关于项目结构（用户已定）
 
-**不加 `platformio.ini`，不改目录结构。** 仓库保持裸 Arduino sketch 形态：
-`代码/<sketch名>/<sketch名>.ino`，文件夹名与 `.ino` 同名（Arduino IDE 的要求）。
-PlatformIO 工程由用户自己在 VS Code 里组织 —— **别擅自加 `platformio.ini` 或把 `.ino` 挪进 `src/`**。
+**分工：用户建工程并编译烧录，我只改代码。**
+
+- 工具链归用户：Windows 端 VS Code + PlatformIO 建工程、编译、烧录。
+  **WSL2 这边不装 PlatformIO/Arduino 工具链，不建工程，不下载依赖。**
+- 现有工程：`代码/ZeroCarbonFan_v2/ZeroCarbon/`（用户 2026-09-22 建）
+- `.ino` 是参考代码，保持 `代码/<sketch名>/<sketch名>.ino` 形态（文件夹名与 `.ino` 同名）。
+- **我别擅自加 `platformio.ini`、别改工程目录结构、别把 `.ino` 挪进 `src/`。**
 
 ## ⚠️ 约定
 
