@@ -24,17 +24,20 @@
 ## 代码位置
 
 ```
-代码/ZeroCarbonFan/ZeroCarbonFan.ino         # 原版 —— 提供方提供，原样保存未改
-代码/ZeroCarbonFan_v2/ZeroCarbonFan_v2.ino   # v2 —— 重写版，主战场
-文档/项目需求.md                              # 需求 + 实现覆盖情况（第 6 节，原版/v2 对照）
-文档/v2改动说明.md                            # v2 改了什么、为什么、怎么验证
-文档/材料清单.md                              # 已有物料 / 缺口 / 接线要点
-文档/web页面方案.md                           # 网页现状与升级路线
-文档/web页面原型/                             # 离线可点的网页预览 + 实测截图
-工具/生成网页预览.py                          # 从固件抽 HTML 生成预览
+代码/ZeroCarbonFan/ZeroCarbonFan.ino           # 原版 —— 提供方提供，原样保存未改
+代码/ZeroCarbonFan_v2/ZeroCarbonFan_v2.ino     # v2 —— 重写版，主战场，**唯一源码**
+代码/ZeroCarbonFan_v2/platformio.ini           # PlatformIO 配置，与 .ino 同级（src_dir = .）
+文档/项目需求.md                                # 需求 + 实现覆盖情况（第 6 节，原版/v2 对照）
+文档/v2改动说明.md                              # v2 改了什么、为什么、怎么验证
+文档/材料清单.md                                # 已有物料 / 缺口 / 接线要点（含可用/禁用引脚）
+文档/板卡/esp32_cp2102_引脚图.jpg               # 板卡完整引脚定义，选引脚看这张
+文档/web页面方案.md                             # 网页现状与升级路线
+文档/web页面原型/                               # 离线可点的网页预览 + 实测截图
+工具/生成网页预览.py                            # 从固件抽 HTML 生成预览
 ```
 
-**框架是 Arduino（ESP32 core），每个 sketch 单 `.ino` 文件，没有 PlatformIO 工程。**
+**框架是 Arduino（ESP32 core），每个 sketch 单 `.ino` 文件。**
+**PlatformIO 只是编译入口，不引入第二份源码** —— 见下面「关于项目结构」。
 
 ### 三份代码的关系
 
@@ -58,11 +61,31 @@ python3 工具/生成网页预览.py
 **本机 WSL2 只负责**：写代码、跑上面这个预览生成脚本、用无头浏览器截图验证网页。
 **用户负责**：编译、烧录、上板实测 —— 有报错他会贴过来。
 
-### 关于项目结构（用户已定）
+### 关于项目结构（用户已定，2026-09-22 更新）
 
-**不加 `platformio.ini`，不改目录结构。** 仓库保持裸 Arduino sketch 形态：
-`代码/<sketch名>/<sketch名>.ino`，文件夹名与 `.ino` 同名（Arduino IDE 的要求）。
-PlatformIO 工程由用户自己在 VS Code 里组织 —— **别擅自加 `platformio.ini` 或把 `.ino` 挪进 `src/`**。
+**源码永远只有一份：`代码/ZeroCarbonFan_v2/ZeroCarbonFan_v2.ino`。**
+
+仓库保持裸 Arduino sketch 形态 `代码/<sketch名>/<sketch名>.ino`，文件夹名与 `.ino` 同名（Arduino IDE 的要求）。
+PlatformIO 工程**与 `.ino` 同级**，靠 `platformio.ini` 里的两行指过去：
+
+```ini
+[platformio]
+src_dir = .                          ; 把本目录当源码目录，而不是默认的 src/
+
+[env:esp32dev]
+build_src_filter = +<ZeroCarbonFan_v2.ino>   ; 只编这一个文件，别把 .pio/ 生成物编进去
+```
+
+**因此三条红线**：
+
+1. **别在 `ZeroCarbonFan_v2/` 下再建 `src/` 放副本** —— 双源码必然不同步，改了 `.ino` 以为编进去了，实际编的是旧副本。
+2. **别把 `.ino` 挪进 `src/`** —— 会破坏 Arduino IDE 的「文件夹名 = .ino 名」规矩，路径也变深。
+3. **`src_dir` 和 `build_src_filter` 别动** —— 改了就编不到真固件，或把生成物当源码。
+
+**编译前自查**：`src/` 目录**不该存在**。如果看见 `ZeroCarbonFan_v2/src/main.cpp`，
+那是 PlatformIO「新建工程」模板留下的 `myFunction(2,3)` 桩子 —— 此时 Build 会**绿灯成功**但
+烧进去的是加法小程序，不是固件。这种「成功」比报错更难查。
+
 
 ## ⚠️ 约定
 

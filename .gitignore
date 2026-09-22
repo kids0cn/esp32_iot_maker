@@ -15,6 +15,9 @@ Thumbs.db
 .vscode/
 .idea/
 
+# PlatformIO 构建产物（几百 MB，不进版本库）
+.pio/
+
 # Environment
 .env
 .env.*
