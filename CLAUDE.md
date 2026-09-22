@@ -12,7 +12,8 @@
 | **已有物料 / 缺口 / 接线要点** | `文档/材料清单.md` |
 | **网页方案**（现状、四条路线、推荐） | `文档/web页面方案.md` |
 | 网页预览（离线可点） | `文档/web页面原型/v2页面.html` |
-| 固件源码 | 原版 `代码/ZeroCarbonFan/` ｜ v2 `代码/ZeroCarbonFan_v2/` |
+| **★ 工程源码（编译/烧录/写代码在这）** | `代码/ZeroCarbonFan_v2/ZeroCarbon/` ← PlatformIO |
+| 原版参考代码（只读，历史存档） | `代码/ZeroCarbonFan/ZeroCarbonFan.ino` |
 | 器件照片与商品页截图 | `文档/传感器/*.jpg` |
 | 系统组成概览 / 学习目标 | `README.md` |
 | Hermes 进度日志 | `~/.hermes/shared/projects/logs/中学生物联网创客项目.md` |
@@ -23,27 +24,22 @@
 ## 代码位置
 
 ```
-代码/ZeroCarbonFan/ZeroCarbonFan.ino         # 原版 —— 提供方提供，原样保存未改
-代码/ZeroCarbonFan_v2/ZeroCarbonFan_v2.ino   # v2 —— 重写版，主战场
-文档/项目需求.md                              # 需求 + 实现覆盖情况（第 6 节，原版/v2 对照）
-文档/v2改动说明.md                            # v2 改了什么、为什么、怎么验证
-文档/材料清单.md                              # 已有物料 / 缺口 / 接线要点
-文档/web页面方案.md                           # 网页现状与升级路线
-文档/web页面原型/                             # 离线可点的网页预览 + 实测截图
-工具/生成网页预览.py                          # 从固件抽 HTML 生成预览
+代码/ZeroCarbonFan/ZeroCarbonFan.ino           # 原版 —— 提供方提供，历史存档，别改
+代码/ZeroCarbonFan_v2/ZeroCarbon/              # ★ PlatformIO 工程（src/main.cpp 网页热点、
+                                               #   src/sensor_test.cpp 传感器测试）
+代码/ZeroCarbonFan_v2/ZeroCarbon/include/index_html.h   # 网页唯一源，预览脚本也从这抽
+文档/项目需求.md                                # 需求 + 实现覆盖情况（第 6 节，原版对照）
+文档/v2改动说明.md                              # 历史：v2 曾改了什么（对应固件已删）
+文档/材料清单.md                                # 已有物料 / 缺口 / 接线要点
+文档/传感器/GP2Y1014AU_*.{txt,png,c}            # 粉尘传感器接线 / 电路图 / 例程
+文档/web页面方案.md                             # 网页现状与升级路线
+文档/web页面原型/                               # 离线可点的网页预览 + 实测截图
+工具/生成网页预览.py                            # 从 index_html.h 抽 HTML 生成预览
 ```
 
-**框架是 Arduino（ESP32 core），每个 sketch 单 `.ino` 文件。**
+**框架是 Arduino（ESP32 core）。** 早期的 v2 参考固件已删除，现在**只有一份源码**：`ZeroCarbonFan/` 下的原版是历史存档（只读），工程代码全在 `ZeroCarbon/`。
 
-### 三份代码的关系
-
-| | 原版 | v2 |
-|---|---|---|
-| 定位 | **历史存档**，别改 | 开发基线 |
-| 内容 | 提供方提供的原始代码 | 修了时序 bug、补了模式切换、网页改 AJAX |
-| 网页 | `client.println()` 逐行拼 | 原始字符串 + AJAX 轮询 |
-
-**别覆盖原版 `.ino`** —— 它是"收到时代码长什么样"的证据，改了就没了。要改代码一律改 v2。
+**原版 `.ino` 是"收到时代码长什么样"的证据，别覆盖、别改。**
 
 ## 常用命令
 

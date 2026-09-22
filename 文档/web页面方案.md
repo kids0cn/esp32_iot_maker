@@ -113,7 +113,7 @@ setInterval(async () => {
 ## 四、推荐路线
 
 > ✅ **本节已实施（2026-09-20）**：方案 2 + 4 已在 v2 固件里落地。
-> 见 `代码/ZeroCarbonFan_v2/ZeroCarbonFan_v2.ino` 与 [`v2改动说明.md`](v2改动说明.md)。
+> 见 `代码/ZeroCarbonFan_v2/ZeroCarbon/include/index_html.h`（v2 参考固件已删）与 [`v2改动说明.md`](v2改动说明.md)。
 > v2 页面实拍：[自动模式](web页面原型/v2页面-自动模式.png) ｜ [重污染](web页面原型/v2页面-重污染.png) ｜ [手动模式](web页面原型/v2页面-手动模式.png)
 
 **分两步走，先解决挡演示的问题：**

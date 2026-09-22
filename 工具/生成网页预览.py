@@ -3,11 +3,16 @@
 
 为什么要这个脚本
 ----------------
-v2 固件把整页 HTML 放在一个 C++ 原始字符串（R"rawliteral(...)")里。
-这样一来网页没法单独打开预览 —— 想看看改了样式长什么样，得先烧进板子、
-连热点、开手机。这个脚本把那段 HTML 抠出来，再注入一段假的 fetch
-（模拟 ESP32 的接口，内含 1 秒轮询的自动逻辑），生成一个能直接双击
-用浏览器打开的预览页。
+整页 HTML 放在一个 C++ 原始字符串里。这样一来网页没法单独打开预览 ——
+想看看改了样式长什么样，得先烧进板子、连热点、开手机。这个脚本把那段
+HTML 抠出来，再注入一段假的 fetch（模拟 ESP32 的接口，内含 1 秒轮询的
+自动逻辑），生成一个能直接双击用浏览器打开的预览页。
+
+HTML 源头在哪
+-------------
+工程里的 代码/ZeroCarbonFan_v2/ZeroCarbon/include/index_html.h
+—— 这是**实际编译进固件的那份**，改网页就改它。
+（早期的 v2 参考固件已删除，脚本不再从那里取。）
 
 注意：生成出来的预览页里有「预览专用」的桩代码和滑杆，**真实固件里没有这些**。
 
@@ -22,7 +27,7 @@ import re
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-FIRMWARE = ROOT / "代码" / "ZeroCarbonFan_v2" / "ZeroCarbonFan_v2.ino"
+FIRMWARE = ROOT / "代码" / "ZeroCarbonFan_v2" / "ZeroCarbon" / "include" / "index_html.h"
 OUTPUT = ROOT / "文档" / "web页面原型" / "v2页面.html"
 
 # 预览专用：在页面脚本【之前】注入假 fetch，拦截网络请求
@@ -80,27 +85,27 @@ PANEL = """
 
 def main() -> int:
     if not FIRMWARE.exists():
-        print(f"❌ 找不到固件：{FIRMWARE}", file=sys.stderr)
+        print(f"❌ 找不到网页源文件：{FIRMWARE}", file=sys.stderr)
         return 1
 
     src = FIRMWARE.read_text(encoding="utf-8")
 
-    # 锚定到真正的赋值那一行，而不是直接找 R"rawliteral( ——
+    # 锚定到真正的赋值那一行，而不是直接找原始字符串定界符 ——
     # 松散匹配会踩坑：文件头注释里如果提到这个定界符本身，
-    # 非贪婪正则就会从注释里开始匹配，把整份固件源码当成 HTML 抽出来。
+    # 非贪婪正则就会从注释里开始匹配，把整份源码当成 HTML 抽出来。
     m = re.search(
         r'const char INDEX_HTML\[\]\s*=\s*R"rawliteral\((.*?)\)rawliteral";',
         src, re.S,
     )
     if not m:
-        print('❌ 固件里找不到 INDEX_HTML 的 R"rawliteral(...)" 块', file=sys.stderr)
+        print("❌ 源文件里找不到 INDEX_HTML 的原始字符串块", file=sys.stderr)
         return 1
 
     html = m.group(1)
 
     # 兜底自检：抽出来的东西里不该有 C++ 预处理指令
     if "#include" in html or "void setup()" in html:
-        print("❌ 抽出的内容像固件源码而不是网页，定界符匹配跑偏了", file=sys.stderr)
+        print("❌ 抽出的内容像 C++ 源码而不是网页，定界符匹配跑偏了", file=sys.stderr)
         return 1
     if ')' + 'rawliteral"' in html:
         print("❌ HTML 里含有原始字符串的结束定界符，会截断编译", file=sys.stderr)
