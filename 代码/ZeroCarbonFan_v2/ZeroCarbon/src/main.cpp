@@ -41,6 +41,7 @@
 #include <WebServer.h>
 #include <DNSServer.h>
 #include "index_html.h"
+#include "light.h"          // 光照模块：引脚/阈值/读取都在 light.h，本文件只做装配
 
 // ================== WiFi 热点配置 ==================
 // 手机连的就是这两个。改名字改密码只改这里。
@@ -74,31 +75,12 @@ int pm25 = 0;                           // 恒为 0 —— 传感器还没接
 const int PM25_THRESHOLD_ON = 75;       // 超过这个值开风扇
 const int PM25_THRESHOLD_OFF = 35;      // 低于这个值关风扇（和上面构成回差，防止频繁启停）
 
-// ================== 光照传感器（4 线制模块，**只读 AO**）==================
-// 模块是 4 线制（①VCC ②GND ③DO ④AO），但**只接三根线**：
-//   ① VCC → **3.3V**   ← 不是 5V！模块给 DO 做了 10K 上拉到 VCC，
-//                        万一以后要用 DO，接 5V 的话 DO 高电平就是 5V，
-//                        ESP32 GPIO 不是 5V 容限。LM393 工作电压 2~36V，3.3V 正常。
-//   ② GND → GND
-//   ③ DO  → **不接**（空着）—— 省一个 GPIO，也省掉极性实测
-//   ④ AO  → GPIO35
-//   ⚠️ 接线前核对板子丝印，以实物为准。
+// 光照模块已拆到 src/light.h（引脚、阈值、lightInit/lightRead 都在那）。
+// 本文件只负责：常量汇总 / setup 装配 / 路由 / 把各模块状态拼成 JSON。
 //
-// 为什么只用 AO：
-//   1. 省 GPIO —— GPIO32 空出来，以后接继电器/灯正好用
-//   2. **没有极性问题** —— AO 高=暗 是分压拓扑决定的（VCC—[10K]—节点—
-//      [光敏电阻]—GND，天暗阻值↑电压↑），跟 LM393 接同相还是反相无关，
-//      不用测、不用猜。DO 那边曾因极性判断反了折腾一轮，这里根除。
-//   3. 网页能显示**光照强度百分比**，DO 只有亮/暗两态
-//
-// 选 GPIO35：只读输入脚、正适合做 ADC、非 strapping（0/2/5/12/15）、
-//            非 Flash（6~11）、非 USB 串口（1/3），且 GPIO34 已被 PM2.5 占用。
-// 代价：阈值改在代码里（下面这个常量），板上电位器只影响 DO，这里用不上。
-const int LIGHT_AO_PIN = 35;
-
-// 暗/亮判定：亮度百分比**低于它**算「暗」。
-// 网页的暗/亮 和 光照强度 都由这一个 AO 推出来，没有第二条判定路径。
-const int LIGHT_DARK_PCT = 50;
+// 以后新增传感器/继电器/语音，同样各建一个 .h，在这里 include 一次、
+// setup 里 init 一次、sendState 里 read 一次 —— platformio.ini 不用改
+// （build_src_filter 只筛 .cpp/.ino，管不到头文件）。
 
 // ================== 统一的 JSON 状态响应 ==================
 // 页面每秒来问一次；每个会改状态的接口也用它回话，格式统一好处理。
@@ -108,13 +90,11 @@ void sendState() {
   json += ",\"fan\":" + String(fanOn ? "true" : "false");
   json += ",\"mode\":\"" + String(mode == MODE_AUTO ? "auto" : "manual") + "\"";
 
-  // 光照：只读 AO。暗/亮 和 强度百分比 都从这一个模拟量推出来。
-  // AO 高 = 暗（分压拓扑决定）→ 所以「亮」要取反。
-  int aoRaw = analogRead(LIGHT_AO_PIN);
-  int lightPct = 100 - (aoRaw * 100L) / 4095;
-  if (lightPct < 0)   lightPct = 0;
-  if (lightPct > 100) lightPct = 100;
-  json += ",\"light\":\"" + String(lightPct < LIGHT_DARK_PCT ? "dark" : "bright") + "\"";
+  // 光照：交给模块读，暗/亮 与 强度 都来自这一次读取
+  int lightPct = 0;
+  bool lightDark = false;
+  lightRead(lightPct, lightDark);
+  json += ",\"light\":\"" + String(lightDark ? "dark" : "bright") + "\"";
   json += ",\"lightPct\":" + String(lightPct);
 
   json += ",\"on\":" + String(PM25_THRESHOLD_ON);
@@ -183,9 +163,7 @@ void setupServer() {
 void setup() {
   Serial.begin(115200);
 
-  // 光照 AO 是模拟输入：开上拉会把分压点拽偏，读数就假了，所以用 INPUT。
-  // 这是**输入模式**，不驱动任何电平，没有烧板子的风险。
-  pinMode(LIGHT_AO_PIN, INPUT);
+  lightInit();   // 光照 AO：输入模式，不驱动电平（细节见 light.h）
 
   // 开热点。softAP 内部默认分配 192.168.4.1，不用额外配。
   WiFi.softAP(WIFI_SSID, WIFI_PASS);
@@ -214,15 +192,11 @@ void setup() {
   Serial.print(LIGHT_AO_PIN);
   Serial.print("（DO 不接）  强度=");
   {
-    int ao = analogRead(LIGHT_AO_PIN);
-    int pct = 100 - (ao * 100L) / 4095;
-    if (pct < 0) pct = 0;
-    if (pct > 100) pct = 100;
+    int pct = 0; bool dark = false;
+    lightRead(pct, dark);
     Serial.print(pct);
     Serial.print("%  判定=");
-    Serial.print(pct < LIGHT_DARK_PCT ? "暗" : "亮");
-    Serial.print("  raw=");
-    Serial.print(ao);
+    Serial.print(dark ? "暗" : "亮");
   }
   Serial.println();
   Serial.println();
