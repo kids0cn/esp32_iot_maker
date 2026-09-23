@@ -15,9 +15,8 @@
  *   ✅ 网页服务 + 接口  —— 真的，手机能开、按钮有反应
  *   ⬜ PM2.5 读数       —— **假的，恒为 0**。传感器还没接线，没东西可读
  *   ⬜ 风扇开关         —— **只是 RAM 里的一个变量**。没接继电器
- *   ⬜ 光照             —— 读 GPIO32 的 DO（暗/亮）+ GPIO35 的 AO（强度%）。
- *                          都是**只读输入，不输出电平**。模块没接时
- *                          INPUT_PULLUP 会稳定显示「暗」，属预期。
+ *   ⬜ 光照             —— 只读 GPIO35 的 AO（强度百分比 + 暗/亮判定）。
+ *                          **只读输入，不输出电平**；DO 空着不接。
  *                          仍然**没有驱动任何输出引脚** —— 引脚没核实就输出
  *                          有烧板子的风险。
  *
@@ -75,30 +74,31 @@ int pm25 = 0;                           // 恒为 0 —— 传感器还没接
 const int PM25_THRESHOLD_ON = 75;       // 超过这个值开风扇
 const int PM25_THRESHOLD_OFF = 35;      // 低于这个值关风扇（和上面构成回差，防止频繁启停）
 
-// ================== 光照传感器（**4 线制**光敏模块）==================
-// 接线（依据 文档/传感器/光敏传感器4线/光敏电阻4线-原理图.jpg）：
-//   模块 ① VCC → **3.3V**（不是 5V！DO 有 10K 上拉到 VCC，
-//                     接 5V 的话 DO 高电平就是 5V，ESP32 GPIO 不是 5V 容限）
-//        ② GND → GND
-//        ③ DO  → GPIO32   数字量：越过板上 VR1 电位器设的阈值就翻转
-//        ④ AO  → GPIO35   模拟量：光照强度，用来算百分比
-//   ⚠️ 接线前核对板子丝印，以实物为准（3 线制只到 DO，少一根 AO）。
+// ================== 光照传感器（4 线制模块，**只读 AO**）==================
+// 模块是 4 线制（①VCC ②GND ③DO ④AO），但**只接三根线**：
+//   ① VCC → **3.3V**   ← 不是 5V！模块给 DO 做了 10K 上拉到 VCC，
+//                        万一以后要用 DO，接 5V 的话 DO 高电平就是 5V，
+//                        ESP32 GPIO 不是 5V 容限。LM393 工作电压 2~36V，3.3V 正常。
+//   ② GND → GND
+//   ③ DO  → **不接**（空着）—— 省一个 GPIO，也省掉极性实测
+//   ④ AO  → GPIO35
+//   ⚠️ 接线前核对板子丝印，以实物为准。
 //
-// 选脚理由：GPIO32 空闲、非 strapping（0/2/5/12/15）、非 Flash（6~11）、
-//           非 USB 串口（1/3）；GPIO35 是只读输入脚、正适合做 ADC，
-//           且 GPIO34 已被 PM2.5 模拟输入占用。
-const int LIGHT_DO_PIN = 32;
+// 为什么只用 AO：
+//   1. 省 GPIO —— GPIO32 空出来，以后接继电器/灯正好用
+//   2. **没有极性问题** —— AO 高=暗 是分压拓扑决定的（VCC—[10K]—节点—
+//      [光敏电阻]—GND，天暗阻值↑电压↑），跟 LM393 接同相还是反相无关，
+//      不用测、不用猜。DO 那边曾因极性判断反了折腾一轮，这里根除。
+//   3. 网页能显示**光照强度百分比**，DO 只有亮/暗两态
+//
+// 选 GPIO35：只读输入脚、正适合做 ADC、非 strapping（0/2/5/12/15）、
+//            非 Flash（6~11）、非 USB 串口（1/3），且 GPIO34 已被 PM2.5 占用。
+// 代价：阈值改在代码里（下面这个常量），板上电位器只影响 DO，这里用不上。
 const int LIGHT_AO_PIN = 35;
 
-// AO 的方向是**拓扑决定的、确定的**：VCC—[10K]—节点—[光敏电阻]—GND，
-// 天暗时光敏电阻阻值↑ → 节点电压↑，所以 **AO 高 = 暗、低 = 亮**。
-// 不依赖 LM393 的同相/反相接法，怎么接都成立 —— 网页的百分比就按这个算。
-//
-// DO 的极性则是**强证据、未实测**：厂商参考例程（GBK 已解码）写着
-//     if (val == LOW)  // 当光敏电阻传感器检测有信号时，LED 亮
-// 夜灯语义下「检测有信号」= 天暗 → DO 低 = 暗。
-// 实测方法见 src/light_test.cpp（env:light），判反了改下面这个常量。
-const int DARK_LEVEL = LOW;
+// 暗/亮判定：亮度百分比**低于它**算「暗」。
+// 网页的暗/亮 和 光照强度 都由这一个 AO 推出来，没有第二条判定路径。
+const int LIGHT_DARK_PCT = 50;
 
 // ================== 统一的 JSON 状态响应 ==================
 // 页面每秒来问一次；每个会改状态的接口也用它回话，格式统一好处理。
@@ -108,12 +108,13 @@ void sendState() {
   json += ",\"fan\":" + String(fanOn ? "true" : "false");
   json += ",\"mode\":\"" + String(mode == MODE_AUTO ? "auto" : "manual") + "\"";
 
-  // 光照：AO 算强度百分比（确定），DO 给阈值翻转的暗/亮（极性见常量注释）
+  // 光照：只读 AO。暗/亮 和 强度百分比 都从这一个模拟量推出来。
+  // AO 高 = 暗（分压拓扑决定）→ 所以「亮」要取反。
   int aoRaw = analogRead(LIGHT_AO_PIN);
-  int lightPct = 100 - (aoRaw * 100L) / 4095;   // AO 高 = 暗 → 取反才是「亮」
+  int lightPct = 100 - (aoRaw * 100L) / 4095;
   if (lightPct < 0)   lightPct = 0;
   if (lightPct > 100) lightPct = 100;
-  json += ",\"light\":\"" + String(digitalRead(LIGHT_DO_PIN) == DARK_LEVEL ? "dark" : "bright") + "\"";
+  json += ",\"light\":\"" + String(lightPct < LIGHT_DARK_PCT ? "dark" : "bright") + "\"";
   json += ",\"lightPct\":" + String(lightPct);
 
   json += ",\"on\":" + String(PM25_THRESHOLD_ON);
@@ -182,14 +183,8 @@ void setupServer() {
 void setup() {
   Serial.begin(115200);
 
-  // 光照 DO 设为输入 + 内部上拉：
-  // 上拉是为了模块没接/没上电时引脚不悬空（悬空读数会乱跳，容易误判成线接错）。
-  // 上拉约 45kΩ，比模块板上那颗 10k 弱得多 —— 模块正常供电时它说了算，不干扰。
-  // 代价：模块没接时页面会稳定显示「暗」，这是预期不是 bug。
+  // 光照 AO 是模拟输入：开上拉会把分压点拽偏，读数就假了，所以用 INPUT。
   // 这是**输入模式**，不驱动任何电平，没有烧板子的风险。
-  pinMode(LIGHT_DO_PIN, INPUT_PULLUP);
-
-  // AO 是模拟输入：不能开上拉（会把分压点拽偏，读数就假了）
   pinMode(LIGHT_AO_PIN, INPUT);
 
   // 开热点。softAP 内部默认分配 192.168.4.1，不用额外配。
@@ -215,19 +210,19 @@ void setup() {
   Serial.println(WiFi.softAPIP());
   Serial.print("  强制门户 DNS：");
   Serial.println(dnsOk ? "已启动（连上可能自动弹页）" : "启动失败 —— 不会自动弹窗，只能手动开地址");
-  Serial.print("  光照：DO=GPIO");
-  Serial.print(LIGHT_DO_PIN);
-  Serial.print("  AO=GPIO");
+  Serial.print("  光照：AO=GPIO");
   Serial.print(LIGHT_AO_PIN);
-  Serial.print("  强度=");
+  Serial.print("（DO 不接）  强度=");
   {
     int ao = analogRead(LIGHT_AO_PIN);
     int pct = 100 - (ao * 100L) / 4095;
     if (pct < 0) pct = 0;
     if (pct > 100) pct = 100;
     Serial.print(pct);
-    Serial.print("%  DO判定=");
-    Serial.print(digitalRead(LIGHT_DO_PIN) == DARK_LEVEL ? "暗" : "亮");
+    Serial.print("%  判定=");
+    Serial.print(pct < LIGHT_DARK_PCT ? "暗" : "亮");
+    Serial.print("  raw=");
+    Serial.print(ao);
   }
   Serial.println();
   Serial.println();

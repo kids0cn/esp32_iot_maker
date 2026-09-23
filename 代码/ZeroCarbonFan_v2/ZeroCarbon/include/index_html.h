@@ -178,7 +178,7 @@ const char INDEX_HTML[] = R"rawliteral(
         : '环境明亮，灯保持关闭。';
       if (hasPct) {
         $('lightHint').textContent += '　强度 ' + s.lightPct + '% 来自 AO 模拟量；'
-          + '暗/亮 由 DO 判定（阈值用板上蓝色电位器调）。';
+          + '暗/亮 也由同一个 AO 按阈值判定（只接 VCC/GND/AO 三根线，DO 空着）。';
       }
     }
 
