@@ -51,6 +51,9 @@ const char INDEX_HTML[] = R"rawliteral(
        margin-right:8px; vertical-align:middle; background:var(--dim)}
   .dot.on{background:var(--ok); box-shadow:0 0 10px var(--ok)}
   .dot.off{background:#475569}
+  /* 光照：暗=琥珀（提示该开灯了），亮=绿 */
+  .dot.dark{background:#f59e0b; box-shadow:0 0 10px #f59e0b}
+  .dot.bright{background:#22c55e; box-shadow:0 0 10px #22c55e}
 
   /* ── 按钮 ── */
   .btns{display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:16px}
@@ -82,6 +85,14 @@ const char INDEX_HTML[] = R"rawliteral(
     <div class="unit">μg/m³</div>
     <div id="level" class="level">--</div>
     <div class="bar"><i id="bar"></i></div>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <span class="k">光照</span>
+      <span class="v"><span id="ldot" class="dot off"></span><span id="light">--</span></span>
+    </div>
+    <div id="lightHint" class="hint"></div>
   </div>
 
   <div class="card">
@@ -147,6 +158,23 @@ const char INDEX_HTML[] = R"rawliteral(
     var pct = Math.min(100, s.pm25 / 250 * 100);
     $('bar').style.width = pct + '%';
     $('bar').style.background = c.fg;
+
+    // 光照（3 线制光敏模块只有 DO，判亮/暗两态）
+    // 用 s.light === undefined 兜底：万一固件没报这个字段，
+    // 显示「未接」而不是默认成「亮」骗人。
+    if (s.light === undefined) {
+      $('light').textContent = '未接';
+      $('ldot').className = 'dot off';
+      $('lightHint').textContent = '固件没有上报光照，检查是否接了光敏模块。';
+    } else if (s.light === 'dark') {
+      $('light').textContent = '暗';
+      $('ldot').className = 'dot dark';
+      $('lightHint').textContent = '环境偏暗 —— F-05「天黑自动开灯」要判断的就是这个状态。';
+    } else {
+      $('light').textContent = '亮';
+      $('ldot').className = 'dot bright';
+      $('lightHint').textContent = '环境明亮，灯保持关闭。';
+    }
 
     // 风扇状态
     $('fan').textContent = s.fan ? '运行中' : '已停止';

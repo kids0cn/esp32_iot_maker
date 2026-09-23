@@ -14,9 +14,11 @@
  *   ✅ WiFi 热点        —— 真的
  *   ✅ 网页服务 + 接口  —— 真的，手机能开、按钮有反应
  *   ⬜ PM2.5 读数       —— **假的，恒为 0**。传感器还没接线，没东西可读
- *   ⬜ 风扇开关         —— **只是 RAM 里的一个变量**。没接继电器，
- *                          也**没有去驱动任何 GPIO** —— 引脚没核实就输出，
- *                          有烧板子的风险，所以一个引脚都不碰
+ *   ⬜ 风扇开关         —— **只是 RAM 里的一个变量**。没接继电器
+ *   ⬜ 光照             —— 读 GPIO32 的 DO（**只读输入，不输出电平**）。
+ *                          模块没接时 INPUT_PULLUP 会稳定显示「暗」，属预期。
+ *                          仍然**没有驱动任何输出引脚** —— 引脚没核实就输出
+ *                          有烧板子的风险。
  *
  * ── 为什么 loop() 里不能有 delay() ────────────
  *   WebServer 库靠 server.handleClient() 一轮一轮地收发数据。
@@ -72,6 +74,17 @@ int pm25 = 0;                           // 恒为 0 —— 传感器还没接
 const int PM25_THRESHOLD_ON = 75;       // 超过这个值开风扇
 const int PM25_THRESHOLD_OFF = 35;      // 低于这个值关风扇（和上面构成回差，防止频繁启停）
 
+// ================== 光照传感器（3 线制光敏模块）==================
+// 接线：模块 VCC → **3.3V**（不是 5V！DO 有 10K 上拉到 VCC，
+//              接 5V 的话 DO 高电平就是 5V，ESP32 GPIO 不是 5V 容限）
+//       模块 GND → GND     模块 DO → GPIO32
+// 选 GPIO32：空闲、非 strapping（0/2/5/12/15）、非 Flash（6~11）、
+//            非 USB 串口（1/3），且物理上挨着 PM2.5 的 GPIO34，好走线。
+const int LIGHT_PIN = 32;
+// DO 什么电平代表「暗」—— 电路图上 LM393 的相位看不清，不猜，做成常量交给实测。
+// 实测方法见 src/light_test.cpp（env:light）。
+const int DARK_LEVEL = LOW;
+
 // ================== 统一的 JSON 状态响应 ==================
 // 页面每秒来问一次；每个会改状态的接口也用它回话，格式统一好处理。
 void sendState() {
@@ -79,6 +92,7 @@ void sendState() {
   json += "\"pm25\":" + String(pm25);
   json += ",\"fan\":" + String(fanOn ? "true" : "false");
   json += ",\"mode\":\"" + String(mode == MODE_AUTO ? "auto" : "manual") + "\"";
+  json += ",\"light\":\"" + String(digitalRead(LIGHT_PIN) == DARK_LEVEL ? "dark" : "bright") + "\"";
   json += ",\"on\":" + String(PM25_THRESHOLD_ON);
   json += ",\"off\":" + String(PM25_THRESHOLD_OFF);
   json += "}";
@@ -145,6 +159,13 @@ void setupServer() {
 void setup() {
   Serial.begin(115200);
 
+  // 光照 DO 设为输入 + 内部上拉：
+  // 上拉是为了模块没接/没上电时引脚不悬空（悬空读数会乱跳，容易误判成线接错）。
+  // 上拉约 45kΩ，比模块板上那颗 10k 弱得多 —— 模块正常供电时它说了算，不干扰。
+  // 代价：模块没接时页面会稳定显示「暗」，这是预期不是 bug。
+  // 这是**输入模式**，不驱动任何电平，没有烧板子的风险。
+  pinMode(LIGHT_PIN, INPUT_PULLUP);
+
   // 开热点。softAP 内部默认分配 192.168.4.1，不用额外配。
   WiFi.softAP(WIFI_SSID, WIFI_PASS);
 
@@ -168,6 +189,10 @@ void setup() {
   Serial.println(WiFi.softAPIP());
   Serial.print("  强制门户 DNS：");
   Serial.println(dnsOk ? "已启动（连上可能自动弹页）" : "启动失败 —— 不会自动弹窗，只能手动开地址");
+  Serial.print("  光照 DO：GPIO");
+  Serial.print(LIGHT_PIN);
+  Serial.print("  当前=");
+  Serial.println(digitalRead(LIGHT_PIN) == DARK_LEVEL ? "暗" : "亮");
   Serial.println();
 }
 
