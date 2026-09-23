@@ -92,7 +92,6 @@ const char INDEX_HTML[] = R"rawliteral(
       <span class="k">光照</span>
       <span class="v"><span id="ldot" class="dot off"></span><span id="light">--</span></span>
     </div>
-    <div id="lightHint" class="hint"></div>
   </div>
 
   <div class="card">
@@ -159,27 +158,17 @@ const char INDEX_HTML[] = R"rawliteral(
     $('bar').style.width = pct + '%';
     $('bar').style.background = c.fg;
 
-    // 光照（4 线制：AO 给强度百分比，DO 给越过电位器阈值的暗/亮）
-    // 用 s.light === undefined 兜底：万一固件没报这个字段，
-    // 显示「未接」而不是默认成「亮」骗人。
+    // 光照（4 线制模块只读 AO：强度与暗/亮都来自这一次读取）
+    // 不再显示说明文字 —— 那些是接线/实现细节，不该出现在手机界面上。
     if (s.light === undefined) {
       $('light').textContent = '未接';
       $('ldot').className = 'dot off';
-      $('lightHint').textContent = '固件没有上报光照，检查是否接了光敏模块。';
     } else {
       var isDark = (s.light === 'dark');
-      var hasPct = (s.lightPct !== undefined);
-      $('light').textContent = hasPct
-        ? (isDark ? '暗' : '亮') + ' · ' + s.lightPct + '%'
-        : (isDark ? '暗' : '亮');
+      $('light').textContent = (s.lightPct === undefined)
+        ? (isDark ? '暗' : '亮')
+        : (isDark ? '暗' : '亮') + ' · ' + s.lightPct + '%';
       $('ldot').className = 'dot ' + (isDark ? 'dark' : 'bright');
-      $('lightHint').textContent = isDark
-        ? '环境偏暗 —— F-05「天黑自动开灯」要判断的就是这个状态。'
-        : '环境明亮，灯保持关闭。';
-      if (hasPct) {
-        $('lightHint').textContent += '　强度 ' + s.lightPct + '% 来自 AO 模拟量；'
-          + '暗/亮 也由同一个 AO 按阈值判定（只接 VCC/GND/AO 三根线，DO 空着）。';
-      }
     }
 
     // 风扇状态
