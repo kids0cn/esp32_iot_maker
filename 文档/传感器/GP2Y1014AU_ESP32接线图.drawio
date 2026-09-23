@@ -1,0 +1,75 @@
+<mxGraphModel adaptiveColors="auto" dx="1000" dy="700" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1000" pageHeight="760" math="0" shadow="0">
+  <root>
+    <mxCell id="0"/>
+    <mxCell id="1" parent="0"/>
+
+    <mxCell id="title" value="&lt;font style=&quot;font-size: 20px;&quot;&gt;&lt;b&gt;GP2Y1014AU 粉尘传感器模块 → ESP32 接线图&lt;/b&gt;&lt;/font&gt;&lt;br&gt;&lt;font color=&quot;#666666&quot; style=&quot;font-size: 12px;&quot;&gt;对应代码：ZeroCarbon/src/sensor_test.cpp&lt;/font&gt;" style="text;html=1;align=center;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="40" y="20" width="860" height="56" as="geometry"/>
+    </mxCell>
+
+    <mxCell id="esp" value="&lt;b&gt;ESP32 开发板&lt;/b&gt;&lt;br&gt;WAVGAT CP2102 Type-C" style="swimlane;startSize=40;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=13;html=1;" vertex="1" parent="1">
+      <mxGeometry x="40" y="100" width="290" height="390" as="geometry"/>
+    </mxCell>
+
+    <mxCell id="esp5v" value="&lt;b&gt;VIN / 5V&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6c8ebf;fontSize=13;" vertex="1" parent="esp">
+      <mxGeometry x="120" y="55" width="150" height="54" as="geometry"/>
+    </mxCell>
+
+    <mxCell id="espgnd" value="&lt;b&gt;GND&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6c8ebf;fontSize=13;" vertex="1" parent="esp">
+      <mxGeometry x="120" y="125" width="150" height="54" as="geometry"/>
+    </mxCell>
+
+    <mxCell id="esp34" value="&lt;b&gt;GPIO34&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#666666&quot; style=&quot;font-size: 11px;&quot;&gt;只读输入 · ADC&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6c8ebf;fontSize=13;" vertex="1" parent="esp">
+      <mxGeometry x="120" y="235" width="150" height="54" as="geometry"/>
+    </mxCell>
+
+    <mxCell id="esp13" value="&lt;b&gt;GPIO13&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#666666&quot; style=&quot;font-size: 11px;&quot;&gt;普通输出&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6c8ebf;fontSize=13;" vertex="1" parent="esp">
+      <mxGeometry x="120" y="305" width="150" height="54" as="geometry"/>
+    </mxCell>
+
+    <mxCell id="mod" value="&lt;b&gt;GP2Y1014AU 模块&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#666666&quot; style=&quot;font-size: 11px;&quot;&gt;板内已含 150Ω · 100µF×2 · 10k/1k 分压&lt;/font&gt;" style="swimlane;startSize=52;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=13;html=1;" vertex="1" parent="1">
+      <mxGeometry x="600" y="100" width="300" height="390" as="geometry"/>
+    </mxCell>
+
+    <mxCell id="modvcc" value="&lt;b&gt;VCC&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#666666&quot; style=&quot;font-size: 11px;&quot;&gt;传感器 1·6 脚&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#82b366;fontSize=13;" vertex="1" parent="mod">
+      <mxGeometry x="20" y="55" width="150" height="54" as="geometry"/>
+    </mxCell>
+
+    <mxCell id="modgnd" value="&lt;b&gt;GND&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#666666&quot; style=&quot;font-size: 11px;&quot;&gt;传感器 2·4 脚&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#82b366;fontSize=13;" vertex="1" parent="mod">
+      <mxGeometry x="20" y="125" width="150" height="54" as="geometry"/>
+    </mxCell>
+
+    <mxCell id="modaout" value="&lt;b&gt;AOUT&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#666666&quot; style=&quot;font-size: 11px;&quot;&gt;传感器 5 脚 · 已分压 · ≤0.36V&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#82b366;fontSize=13;" vertex="1" parent="mod">
+      <mxGeometry x="20" y="235" width="150" height="54" as="geometry"/>
+    </mxCell>
+
+    <mxCell id="modiled" value="&lt;b&gt;ILED / K_LED&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#666666&quot; style=&quot;font-size: 11px;&quot;&gt;传感器 3 脚&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#82b366;fontSize=13;" vertex="1" parent="mod">
+      <mxGeometry x="20" y="305" width="150" height="54" as="geometry"/>
+    </mxCell>
+
+    <mxCell id="e5v" value="&lt;b&gt;5V&lt;/b&gt;" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#d6b656;strokeWidth=3;fontSize=12;" edge="1" source="esp5v" target="modvcc" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <mxCell id="egnd" value="&lt;b&gt;GND&lt;/b&gt;" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#333333;strokeWidth=3;fontSize=12;" edge="1" source="espgnd" target="modgnd" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <mxCell id="eaout" value="&lt;b&gt;模拟信号&lt;/b&gt;" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#0066cc;strokeWidth=3;fontSize=12;endArrow=classic;" edge="1" source="modaout" target="esp34" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <mxCell id="eiled" value="&lt;b&gt;LED 驱动&lt;/b&gt;" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#c0392b;strokeWidth=3;fontSize=12;endArrow=classic;" edge="1" source="esp13" target="modiled" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <mxCell id="warn" value="&lt;b style=&quot;color:#b45309;font-size:14px&quot;&gt;⚠ 上电前检查&lt;/b&gt;&lt;br&gt;&lt;br&gt;1. 传感器 &lt;b&gt;VCC 必须接 5V&lt;/b&gt;（手册 Vcc = 5±0.5V），接 3.3V 不工作&lt;br&gt;2. &lt;b&gt;GND 必须与 ESP32 共地&lt;/b&gt; —— 否则读数全是噪声&lt;br&gt;3. AOUT 只接 &lt;b&gt;GPIO34&lt;/b&gt;（只读输入脚，正适合模拟量）。&lt;b&gt;GPIO34 不能当输出用&lt;/b&gt;&lt;br&gt;4. &lt;b&gt;不要碰&lt;/b&gt;：GPIO 0 / 2（strapping，接了可能起不来）· GPIO 6–11（板载 Flash）· GPIO 1 / 3（USB 串口）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;align=left;verticalAlign=top;spacingLeft=14;spacingTop=8;fontSize=12;" vertex="1" parent="1">
+      <mxGeometry x="40" y="530" width="860" height="180" as="geometry"/>
+    </mxCell>
+
+    <mxCell id="legend" value="&lt;b&gt;代码对应&lt;/b&gt;&lt;br&gt;PM25_LED_PIN = 13 → 红线　·　PM25_AN_PIN = 34 → 蓝线　·　DIVIDER_RESTORE = 11（板内分压）&lt;br&gt;&lt;font color=&quot;#b45309&quot;&gt;&lt;b&gt;⚠ LED 极性待实测：&lt;/b&gt;厂商两份例程=高电平点亮，电路图 pin3 却叫 K_LED（暗示低电平）。烧录后若读数恒定不动，把 sensor_test.cpp 里的 LED_ON_LEVEL 改成 LOW 再烧一次。&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999999;align=left;verticalAlign=top;spacingLeft=12;spacingTop=8;fontSize=12;" vertex="1" parent="1">
+      <mxGeometry x="40" y="720" width="860" height="110" as="geometry"/>
+    </mxCell>
+
+  </root>
+</mxGraphModel>
