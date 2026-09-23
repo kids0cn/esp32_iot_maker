@@ -37,7 +37,7 @@ MOCK = """
    它把 fetch 拦下来，用内存里的假状态模拟 ESP32 的响应，
    好让这个页面在离线（没接硬件）时也能点着玩。 */
 (function () {
-  var mock = { pm25: 42, fan: true, mode: 'auto', on: 75, off: 50, light: 'dark' };
+  var mock = { pm25: 42, fan: true, mode: 'auto', on: 75, off: 50, light: 'dark', lightPct: 30 };
   var mockTick = 0;   // 用来让光照每 6 次轮询翻转一次，离线也能看出卡片会变
   window.__mock = mock;
   window.fetch = function (path) {
@@ -51,10 +51,13 @@ MOCK = """
       if (mock.pm25 > mock.on)  mock.fan = true;
       if (mock.pm25 < mock.off) mock.fan = false;
     }
-    // 光照：每 6 次轮询（约 6 秒）在 暗/亮 之间翻转一次
+    // 光照：每 6 次轮询（约 6 秒）在 暗/亮 之间翻转一次，强度百分比跟着变
     if (path.indexOf('/api/state') >= 0) {
       mockTick++;
-      if (mockTick % 6 === 0) mock.light = (mock.light === 'dark') ? 'bright' : 'dark';
+      if (mockTick % 6 === 0) {
+        mock.light = (mock.light === 'dark') ? 'bright' : 'dark';
+        mock.lightPct = mock.light === 'dark' ? 30 : 85;
+      }
     }
     return Promise.resolve({ ok: true, json: function () { return Promise.resolve(mock); } });
   };

@@ -117,7 +117,7 @@
    它把 fetch 拦下来，用内存里的假状态模拟 ESP32 的响应，
    好让这个页面在离线（没接硬件）时也能点着玩。 */
 (function () {
-  var mock = { pm25: 42, fan: true, mode: 'auto', on: 75, off: 50, light: 'dark' };
+  var mock = { pm25: 42, fan: true, mode: 'auto', on: 75, off: 50, light: 'dark', lightPct: 30 };
   var mockTick = 0;   // 用来让光照每 6 次轮询翻转一次，离线也能看出卡片会变
   window.__mock = mock;
   window.fetch = function (path) {
@@ -131,10 +131,13 @@
       if (mock.pm25 > mock.on)  mock.fan = true;
       if (mock.pm25 < mock.off) mock.fan = false;
     }
-    // 光照：每 6 次轮询（约 6 秒）在 暗/亮 之间翻转一次
+    // 光照：每 6 次轮询（约 6 秒）在 暗/亮 之间翻转一次，强度百分比跟着变
     if (path.indexOf('/api/state') >= 0) {
       mockTick++;
-      if (mockTick % 6 === 0) mock.light = (mock.light === 'dark') ? 'bright' : 'dark';
+      if (mockTick % 6 === 0) {
+        mock.light = (mock.light === 'dark') ? 'bright' : 'dark';
+        mock.lightPct = mock.light === 'dark' ? 30 : 85;
+      }
     }
     return Promise.resolve({ ok: true, json: function () { return Promise.resolve(mock); } });
   };
@@ -178,21 +181,27 @@
     $('bar').style.width = pct + '%';
     $('bar').style.background = c.fg;
 
-    // 光照（3 线制光敏模块只有 DO，判亮/暗两态）
+    // 光照（4 线制：AO 给强度百分比，DO 给越过电位器阈值的暗/亮）
     // 用 s.light === undefined 兜底：万一固件没报这个字段，
     // 显示「未接」而不是默认成「亮」骗人。
     if (s.light === undefined) {
       $('light').textContent = '未接';
       $('ldot').className = 'dot off';
       $('lightHint').textContent = '固件没有上报光照，检查是否接了光敏模块。';
-    } else if (s.light === 'dark') {
-      $('light').textContent = '暗';
-      $('ldot').className = 'dot dark';
-      $('lightHint').textContent = '环境偏暗 —— F-05「天黑自动开灯」要判断的就是这个状态。';
     } else {
-      $('light').textContent = '亮';
-      $('ldot').className = 'dot bright';
-      $('lightHint').textContent = '环境明亮，灯保持关闭。';
+      var isDark = (s.light === 'dark');
+      var hasPct = (s.lightPct !== undefined);
+      $('light').textContent = hasPct
+        ? (isDark ? '暗' : '亮') + ' · ' + s.lightPct + '%'
+        : (isDark ? '暗' : '亮');
+      $('ldot').className = 'dot ' + (isDark ? 'dark' : 'bright');
+      $('lightHint').textContent = isDark
+        ? '环境偏暗 —— F-05「天黑自动开灯」要判断的就是这个状态。'
+        : '环境明亮，灯保持关闭。';
+      if (hasPct) {
+        $('lightHint').textContent += '　强度 ' + s.lightPct + '% 来自 AO 模拟量；'
+          + '暗/亮 由 DO 判定（阈值用板上蓝色电位器调）。';
+      }
     }
 
     // 风扇状态

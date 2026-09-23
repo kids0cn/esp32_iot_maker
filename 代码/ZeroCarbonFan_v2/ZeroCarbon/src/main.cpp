@@ -15,8 +15,9 @@
  *   ✅ 网页服务 + 接口  —— 真的，手机能开、按钮有反应
  *   ⬜ PM2.5 读数       —— **假的，恒为 0**。传感器还没接线，没东西可读
  *   ⬜ 风扇开关         —— **只是 RAM 里的一个变量**。没接继电器
- *   ⬜ 光照             —— 读 GPIO32 的 DO（**只读输入，不输出电平**）。
- *                          模块没接时 INPUT_PULLUP 会稳定显示「暗」，属预期。
+ *   ⬜ 光照             —— 读 GPIO32 的 DO（暗/亮）+ GPIO35 的 AO（强度%）。
+ *                          都是**只读输入，不输出电平**。模块没接时
+ *                          INPUT_PULLUP 会稳定显示「暗」，属预期。
  *                          仍然**没有驱动任何输出引脚** —— 引脚没核实就输出
  *                          有烧板子的风险。
  *
@@ -74,15 +75,29 @@ int pm25 = 0;                           // 恒为 0 —— 传感器还没接
 const int PM25_THRESHOLD_ON = 75;       // 超过这个值开风扇
 const int PM25_THRESHOLD_OFF = 35;      // 低于这个值关风扇（和上面构成回差，防止频繁启停）
 
-// ================== 光照传感器（3 线制光敏模块）==================
-// 接线：模块 VCC → **3.3V**（不是 5V！DO 有 10K 上拉到 VCC，
-//              接 5V 的话 DO 高电平就是 5V，ESP32 GPIO 不是 5V 容限）
-//       模块 GND → GND     模块 DO → GPIO32
-// 选 GPIO32：空闲、非 strapping（0/2/5/12/15）、非 Flash（6~11）、
-//            非 USB 串口（1/3），且物理上挨着 PM2.5 的 GPIO34，好走线。
-const int LIGHT_PIN = 32;
-// DO 什么电平代表「暗」—— 电路图上 LM393 的相位看不清，不猜，做成常量交给实测。
-// 实测方法见 src/light_test.cpp（env:light）。
+// ================== 光照传感器（**4 线制**光敏模块）==================
+// 接线（依据 文档/传感器/光敏传感器4线/光敏电阻4线-原理图.jpg）：
+//   模块 ① VCC → **3.3V**（不是 5V！DO 有 10K 上拉到 VCC，
+//                     接 5V 的话 DO 高电平就是 5V，ESP32 GPIO 不是 5V 容限）
+//        ② GND → GND
+//        ③ DO  → GPIO32   数字量：越过板上 VR1 电位器设的阈值就翻转
+//        ④ AO  → GPIO35   模拟量：光照强度，用来算百分比
+//   ⚠️ 接线前核对板子丝印，以实物为准（3 线制只到 DO，少一根 AO）。
+//
+// 选脚理由：GPIO32 空闲、非 strapping（0/2/5/12/15）、非 Flash（6~11）、
+//           非 USB 串口（1/3）；GPIO35 是只读输入脚、正适合做 ADC，
+//           且 GPIO34 已被 PM2.5 模拟输入占用。
+const int LIGHT_DO_PIN = 32;
+const int LIGHT_AO_PIN = 35;
+
+// AO 的方向是**拓扑决定的、确定的**：VCC—[10K]—节点—[光敏电阻]—GND，
+// 天暗时光敏电阻阻值↑ → 节点电压↑，所以 **AO 高 = 暗、低 = 亮**。
+// 不依赖 LM393 的同相/反相接法，怎么接都成立 —— 网页的百分比就按这个算。
+//
+// DO 的极性则是**强证据、未实测**：厂商参考例程（GBK 已解码）写着
+//     if (val == LOW)  // 当光敏电阻传感器检测有信号时，LED 亮
+// 夜灯语义下「检测有信号」= 天暗 → DO 低 = 暗。
+// 实测方法见 src/light_test.cpp（env:light），判反了改下面这个常量。
 const int DARK_LEVEL = LOW;
 
 // ================== 统一的 JSON 状态响应 ==================
@@ -92,7 +107,15 @@ void sendState() {
   json += "\"pm25\":" + String(pm25);
   json += ",\"fan\":" + String(fanOn ? "true" : "false");
   json += ",\"mode\":\"" + String(mode == MODE_AUTO ? "auto" : "manual") + "\"";
-  json += ",\"light\":\"" + String(digitalRead(LIGHT_PIN) == DARK_LEVEL ? "dark" : "bright") + "\"";
+
+  // 光照：AO 算强度百分比（确定），DO 给阈值翻转的暗/亮（极性见常量注释）
+  int aoRaw = analogRead(LIGHT_AO_PIN);
+  int lightPct = 100 - (aoRaw * 100L) / 4095;   // AO 高 = 暗 → 取反才是「亮」
+  if (lightPct < 0)   lightPct = 0;
+  if (lightPct > 100) lightPct = 100;
+  json += ",\"light\":\"" + String(digitalRead(LIGHT_DO_PIN) == DARK_LEVEL ? "dark" : "bright") + "\"";
+  json += ",\"lightPct\":" + String(lightPct);
+
   json += ",\"on\":" + String(PM25_THRESHOLD_ON);
   json += ",\"off\":" + String(PM25_THRESHOLD_OFF);
   json += "}";
@@ -164,7 +187,10 @@ void setup() {
   // 上拉约 45kΩ，比模块板上那颗 10k 弱得多 —— 模块正常供电时它说了算，不干扰。
   // 代价：模块没接时页面会稳定显示「暗」，这是预期不是 bug。
   // 这是**输入模式**，不驱动任何电平，没有烧板子的风险。
-  pinMode(LIGHT_PIN, INPUT_PULLUP);
+  pinMode(LIGHT_DO_PIN, INPUT_PULLUP);
+
+  // AO 是模拟输入：不能开上拉（会把分压点拽偏，读数就假了）
+  pinMode(LIGHT_AO_PIN, INPUT);
 
   // 开热点。softAP 内部默认分配 192.168.4.1，不用额外配。
   WiFi.softAP(WIFI_SSID, WIFI_PASS);
@@ -189,10 +215,21 @@ void setup() {
   Serial.println(WiFi.softAPIP());
   Serial.print("  强制门户 DNS：");
   Serial.println(dnsOk ? "已启动（连上可能自动弹页）" : "启动失败 —— 不会自动弹窗，只能手动开地址");
-  Serial.print("  光照 DO：GPIO");
-  Serial.print(LIGHT_PIN);
-  Serial.print("  当前=");
-  Serial.println(digitalRead(LIGHT_PIN) == DARK_LEVEL ? "暗" : "亮");
+  Serial.print("  光照：DO=GPIO");
+  Serial.print(LIGHT_DO_PIN);
+  Serial.print("  AO=GPIO");
+  Serial.print(LIGHT_AO_PIN);
+  Serial.print("  强度=");
+  {
+    int ao = analogRead(LIGHT_AO_PIN);
+    int pct = 100 - (ao * 100L) / 4095;
+    if (pct < 0) pct = 0;
+    if (pct > 100) pct = 100;
+    Serial.print(pct);
+    Serial.print("%  DO判定=");
+    Serial.print(digitalRead(LIGHT_DO_PIN) == DARK_LEVEL ? "暗" : "亮");
+  }
+  Serial.println();
   Serial.println();
 }
 
