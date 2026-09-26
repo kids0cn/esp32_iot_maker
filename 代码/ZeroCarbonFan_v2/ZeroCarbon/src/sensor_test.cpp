@@ -1,149 +1,152 @@
 /*
- * PM2.5 粉尘传感器测试（Sharp GP2Y1014AU **裸传感器**）
+ * PM2.5 粉尘传感器自检 —— Sharp GP2Y1014AU + 转接板（4 线制）
  * ============================================
  * 独立测试程序：只读传感器、往串口打印，不开 WiFi、不碰继电器。
- * 用来确认「接线对不对、传感器活没活、读数会不会动」。
+ * 目的就一个：**确认这个传感器到底能不能用**。
  *
- * ── ⚠️ 你手上是裸传感器，没有板载电路，下面这些全要自己在面包板上搭 ──
- *   接线图：文档/传感器/GP2Y1014AU_ESP32接线图.drawio.png
+ * ── 接线：4 根线，转接板上已含需要的元件，不用外接任何东西 ──
  *
- *   ① 供电 RC（手册要求）
- *      5V ──[150Ω]──┬── 传感器 1 脚 V-LED
- *                    └──[220µF +]── GND      ← 电容传感器已附带
- *      5V ──────────────── 传感器 6 脚 VCC（直连，不过 150Ω）
+ *   转接板          ESP32
+ *   ─────────────────────────────────────────
+ *   VCC    ────→   VIN / 5V        ⚠️ 5V，不是 3.3V
+ *   GND    ────→   GND             必须共地
+ *   AO     ────→   GPIO34          模拟输入（只读脚，正合适）
+ *   ILED   ────→   GPIO13          LED 驱动
  *
- *   ② 模拟分压（★ 没有它会烧 GPIO34）
- *      传感器 5 脚 Vo ──[10k]──┬── GPIO34
- *                              └──[1k]── GND
- *      GPIO34 上电压 = Vo × 1k/(10k+1k) = Vo/11
+ *   转接板已经把这些做在板上，**不需要再买电阻**：
+ *     · 150Ω + 220µF  供电 RC（手册要求）
+ *     · 10k + 1k      模拟分压（VO ÷ 11）
  *
- *   ③ LED 驱动
- *      GPIO13 ──────────────── 传感器 3 脚 LED
- *      传感器 2 脚 LED-GND、4 脚 S-GND 都接 GND
+ * ── ⚠️ 上电前确认一件事：板上确实有分压 ──────────
+ *   低头看转接板上有没有**两颗电阻（一颗 10k、一颗 1k）**。
+ *   依据你给的 接线.txt：「转接板是1K跟10K的电阻分压采集，所以程序计算时要乘11」
  *
- *   **待采购：150Ω ×1、10k ×1、1k ×1** —— 材料清单里一个电阻都没有。
+ *   · 有分压 → AO 最高约 4V ÷ 11 ≈ 0.36V，接 GPIO34 安全
+ *   · 没分压 → AO 最高约 4V，超过 GPIO34 绝对最大 3.6V，**会打坏引脚**
  *
- * ── 参数依据（全部来自手册和例程，不是猜的） ──────
+ *   接上后看串口就能反验：raw 落在 **0~450** = 有分压 ✅；
+ *   raw 冲到 4000 以上 = **没分压，立刻断电**。
+ *
+ * ── 参数依据（来自你给的资料，不是猜的） ──────────
  *   文档/传感器/PM2.5传感器 资料/
- *   ├── 例程使用说明.pdf      ← 最关键：280µs 采样、1:10 分压要 ×11、含均值滤波
- *   ├── 分压电阻.png          ← 分压电路：VO→10k→AOUT→1k→GND
- *   ├── 接线.txt              ← // 转接板是1K跟10K的电阻分压采集，所以下面要乘11
- *   └── STM32例程 main.c      ← 完整换算实现（3300mV / 12位，和 ESP32 一样）
- *   抽出的三份已另存在 文档/传感器/GP2Y1014AU_*.{txt,png,c}
+ *   ├── 例程使用说明.pdf   ← 280µs 采样、1:10 分压要 ×11、含均值滤波
+ *   ├── 接线.txt           ← 4 线（VCC/GND/AO/ILED）+「乘11」
+ *   └── STM32例程 main.c   ← 完整换算（3300mV / 12位，和 ESP32 一样）
  *
- *   ★ 分压比是 **11 倍**，不是 2 倍。
- *     VO → 10k → 分压点 → 1k → GND，分压点 = VO/11，
- *     ADC 读到的只是真实电压的 1/11，必须乘 11 还原。
- *     照 2 倍算会把电压压到 0.7V 以下，减掉 0.4V 基准后读数几乎恒为 0。
- *     ⚠️ 换了阻值（不是 10k/1k）就要同步改下面的 DIVIDER_RESTORE。
- *
- * ── 传感器引脚（6 脚，依据 手册 Connector arrangement） ──
- *   1 V-LED   经 150Ω 接 5V        4 S-GND   接 GND
- *   2 LED-GND 接 GND                5 Vo      模拟输出，经分压进 GPIO34
- *   3 LED     接 GPIO13             6 Vcc     直接接 5V（手册 Vcc = 5±0.5V）
- *
- * ── 怎么读串口输出 ────────────────────────────
- *   raw=  原始 ADC 值。这块板分压后只用到约 0~450，**不是 0~4095**
- *   Vo=   还原后的真实传感器电压（mV），干净空气下应在 400mV 上下
- *   PM2.5= 浓度（相对值，未校准）
- *   [min/max] 运行区间，用来判断读数到底会不会动
- *
- *   · raw 恒为 0        → 传感器没输出，查 5 脚 / 5V 供电
- *   · raw 恒为 4095     → 输出超量程或接错脚
- *   · raw 恒定不动、点蚊香也不变 → **多半是 LED 极性反了**（见下方说明）
- *   · 吹气 / 蚊香烟后 raw 明显上升 → 一切正常 ✅
- *
- * ── ⚠️ LED 极性有冲突，需要你实测确认 ──────────
- *   你给的两份厂商例程（Arduino DustSensor.ino、STM32 main.c）都是
- *   **高电平点亮**；而模块电路图上 pin3 叫 K_LED（K 通常指阴极，
- *   暗示低电平点亮）。两者矛盾，手册里也没有单独说明这一页。
- *
- *   下面做成常量 LED_ON_LEVEL，默认按厂商例程取 HIGH。
- *   烧录后如果读数恒定不动、点蚊香没反应 → 把它改成 LOW 再烧一次。
- *
- * ── 为什么这些数字是「相对值」 ────────────────
- *   例程使用说明.pdf 明确写了：每台传感器无尘电压有个体差异，
- *   要手动修 NO_DUST_MV；K 值（斜率）要配专业检测仪对比才能校准。
- *   所以下面的读数判高低够用，**不能当仪器读数**。
+ * ── 怎么读串口 ────────────────────────────────
+ *   每秒一行：
+ *     raw=123  Vo=396mV  PM2.5=0 ug/m3   [min=118 max=131]
+ *   每 10 秒给一次**自检判定**，直接告诉你传感器活没活。
  */
 
 #include <Arduino.h>
 
 // ================== 引脚 ==================
-const int PM25_LED_PIN = 13;   // 传感器 3 脚 K_LED
-const int PM25_AN_PIN  = 34;   // 传感器 5 脚分压后的 AOUT。GPIO34 是只读输入脚
+const int PM25_LED_PIN = 13;   // 接转接板的 ILED
+const int PM25_AN_PIN  = 34;   // 接转接板的 AO。GPIO34 是只读输入脚
 
-// ================== LED 极性（见上方说明，实测确认） ==================
-// 1 = 高电平点亮（厂商两份例程的做法，当前默认）
-// 0 = 低电平点亮（若读数恒定不动就改成这个）
-const int LED_ON_LEVEL = HIGH;
+// ================== LED 极性 ==================
+// 厂商两份例程都写「高电平点亮」，所以默认 HIGH。
+// 若串口一直显示 raw 恒定不动、点蚊香也没反应 → 改成 LOW 再烧一次。
+const int LED_ON_LEVEL  = HIGH;
 const int LED_OFF_LEVEL = LOW;
 
-// ================== 采样时序 ==================
-// 依据 Sharp GP2Y1014AU 手册「Recommended input condition for LED」，
-// 且 例程使用说明.pdf 写明「严格遵循手册，在 LED 开启后 280µs 处采样」：
-//   脉冲周期 T  = 10 ± 1 ms      ← 三段延时加起来必须凑够 10ms
-//   脉冲宽度 PW = 0.32 ± 0.02 ms ← 即 320µs
+// ================== 采样时序（手册要求，别改） ==================
+// Sharp 手册「Recommended input condition for LED」：
+//   脉冲周期 T  = 10 ± 1 ms       ← 三段延时加起来必须凑够 10ms
+//   脉冲宽度 PW = 0.32 ± 0.02 ms  ← 即 320µs
 //   采样时点    = 脉冲开始后 0.28 ms
+// 例程使用说明.pdf 也写明「严格遵循手册，在 LED 开启后 280µs 处采样」
 const int SAMPLING_US   = 280;   // 点亮后等 280µs 再采样
 const int PULSE_TAIL_US = 40;    // 采样完再亮 40µs，凑满 320µs 脉宽
 const int SLEEP_US      = 9680;  // 补足 10ms（280 + 40 + 9680 = 10000µs）
 
 // ================== 分压还原与换算 ==================
 // ⚠️ 未经标定，输出是**相对值**：判高低够用，不能当仪器读数。
-const float ADC_MAX         = 4095.0;  // ESP32 analogRead 默认 12 位（STM32 例程用 4096，差 0.03% 可忽略）
-const float ADC_VREF_MV     = 3300.0;  // ESP32 ADC 参考电压 3.3V，和 STM32 例程一致
-const float DIVIDER_RESTORE = 11.0;    // ★ 模块 10k/1k 分压 → 必须乘 11 还原（不是 2）
-const float NO_DUST_MV      = 400.0;   // 无尘时的电压 (mV)。例程值 400，每台需自行校准
-const float COV_RATIO       = 0.20f;   // 浓度系数：µg/m³ per mV（等价于 200 µg/m³ per V）
+const float ADC_MAX         = 4095.0;  // ESP32 analogRead 默认 12 位
+const float ADC_VREF_MV     = 3300.0;  // ESP32 ADC 参考电压 3.3V
+const float DIVIDER_RESTORE = 11.0;    // ★ 转接板 10k/1k 分压 → 乘 11 还原（不是 2）
+const float NO_DUST_MV      = 400.0;   // 无尘时电压 (mV)，每台有差异，可自行校准
+const float COV_RATIO       = 0.20f;   // 浓度系数：µg/m³ per mV
+
+// 自检用的范围判据
+const int RAW_MIN_OK = 5;      // raw 低于它 = 传感器没输出
+const int RAW_MAX_OK = 500;    // raw 高于它 = 大概率板上没分压，危险
+const int RAW_DANGER = 3500;   // raw 到了这个量级 = 确定没分压，立刻断电
 
 // ================== 均值滤波 ==================
-// 例程使用说明.pdf：「包含均值滤波算法，用于滤除环境杂散光及电源纹波干扰」。
-// 10 次滑动平均 —— 和厂商两份例程一致。
+// 例程使用说明.pdf：「包含均值滤波算法，用于滤除环境杂散光及电源纹波干扰」
 const int FILTER_N = 10;
-int filterBuf[FILTER_N];
-int filterIdx = 0;
+int  filterBuf[FILTER_N];
+int  filterIdx = 0;
 long filterSum = 0;
 bool filterFilled = false;
 
 int filterAvg(int sample) {
   if (!filterFilled) {
-    // 首次进来先把缓冲区填满，避免从 0 开始爬升导致开头一段读数偏低
     for (int i = 0; i < FILTER_N; i++) filterBuf[i] = sample;
     filterSum = (long)sample * FILTER_N;
     filterIdx = 0;
     filterFilled = true;
     return sample;
   }
-  filterSum -= filterBuf[filterIdx];   // 去掉最老的一个
-  filterBuf[filterIdx] = sample;       // 放进最新的
+  filterSum -= filterBuf[filterIdx];
+  filterBuf[filterIdx] = sample;
   filterSum += filterBuf[filterIdx];
   filterIdx = (filterIdx + 1) % FILTER_N;
   return (int)(filterSum / FILTER_N);
 }
 
 // ================== 读一次 ==================
-// 会阻塞约 10ms（必须等够脉冲周期）。每秒读一次完全无所谓；
-// 但这个函数不能放进要频繁 handleClient() 的循环里。
+// 会阻塞约 10ms（必须等够脉冲周期）。每秒读一次完全无所谓。
 int readPM25(int& rawOut, float& voltageMvOut) {
-  digitalWrite(PM25_LED_PIN, LED_ON_LEVEL);  // 点亮传感器内部 LED
-  delayMicroseconds(SAMPLING_US);            // 等 280µs，让光路稳定
-  int raw = analogRead(PM25_AN_PIN);         // 在脉冲开始后 280µs 处采样
-  delayMicroseconds(PULSE_TAIL_US);          // 再亮 40µs，凑满 320µs 脉宽
-  digitalWrite(PM25_LED_PIN, LED_OFF_LEVEL); // 熄灭 LED
-  delayMicroseconds(SLEEP_US);               // 补足 10ms 周期
+  digitalWrite(PM25_LED_PIN, LED_ON_LEVEL);   // 点亮传感器内部 LED
+  delayMicroseconds(SAMPLING_US);             // 等 280µs，让光路稳定
+  int raw = analogRead(PM25_AN_PIN);          // 在脉冲开始后 280µs 处采样
+  delayMicroseconds(PULSE_TAIL_US);           // 再亮 40µs，凑满 320µs 脉宽
+  digitalWrite(PM25_LED_PIN, LED_OFF_LEVEL);  // 熄灭 LED
+  delayMicroseconds(SLEEP_US);                // 补足 10ms 周期
 
   rawOut = filterAvg(raw);
 
-  // 还原真实电压：ADC 读到的只是 VO 的 1/11，要乘回来
+  // 还原真实电压：ADC 读到的只是 VO 的 1/11，乘回来
   voltageMvOut = rawOut * (ADC_VREF_MV / ADC_MAX) * DIVIDER_RESTORE;
 
-  // 电压 → 浓度（在 mV 空间算，和 STM32 例程写法一致）
   float density = 0;
   if (voltageMvOut > NO_DUST_MV) {
     density = (voltageMvOut - NO_DUST_MV) * COV_RATIO;
   }
   return (int)density;
+}
+
+// ================== 自检判定 ==================
+// 每 10 秒判一次，直接给结论，不用自己盯数字
+void selfCheck(int minRaw, int maxRaw) {
+  Serial.println();
+  Serial.println("  ── 自检 ──────────────────────────────");
+  Serial.print("    raw 范围 : ");
+  Serial.print(minRaw);
+  Serial.print(" ~ ");
+  Serial.print(maxRaw);
+  Serial.println("   （正常应落在 0~450）");
+
+  if (maxRaw >= RAW_DANGER) {
+    Serial.println("    ❌ 危险：raw 冲到 " + String(maxRaw) + "，说明 AO 没有分压！");
+    Serial.println("       转接板上可能没有 10k/1k。**立刻断电**，别继续接 GPIO34。");
+  } else if (maxRaw > RAW_MAX_OK) {
+    Serial.println("    ⚠️ raw 超过 450 —— 可能没分压，或 AO 接错了脚。先查线。");
+  } else if (maxRaw <= RAW_MIN_OK) {
+    Serial.println("    ❌ raw 一直是 0 —— 传感器没有输出。");
+    Serial.println("       查：VCC 是不是 5V（不是 3.3V）？GND 共地了吗？AO 接对了没？");
+  } else if (minRaw == maxRaw) {
+    Serial.println("    ⚠️ raw 恒定不变 —— 传感器可能在跑，但没看到任何光信号变化。");
+    Serial.println("       最可能：LED 极性反了 → 把 LED_ON_LEVEL 改成 LOW 再烧一次。");
+  } else {
+    Serial.println("    ✅ 传感器有响应，读数在动 —— 硬件是通的。");
+    Serial.println("       下一步：凑近点根蚊香 / 吹口气，看 raw 会不会明显往上跑。");
+  }
+  Serial.println("  ──────────────────────────────────────");
+  Serial.println();
 }
 
 // ================== 初始化 ==================
@@ -156,15 +159,17 @@ void setup() {
   pinMode(PM25_AN_PIN, INPUT);
 
   Serial.println();
-  Serial.println("=== GP2Y1014AU 模块 PM2.5 测试 ===");
-  Serial.print("  LED 驱动脚 = GPIO");
+  Serial.println("=== GP2Y1014AU 转接板 · PM2.5 传感器自检 ===");
+  Serial.println("  接线：VCC→5V（不是3.3V）  GND→GND  AO→GPIO34  ILED→GPIO13");
+  Serial.print("  ILED = GPIO");
   Serial.print(PM25_LED_PIN);
-  Serial.print("  (");
+  Serial.print("（");
   Serial.print(LED_ON_LEVEL == HIGH ? "高电平点亮" : "低电平点亮");
-  Serial.print(")    模拟输入脚 = GPIO");
+  Serial.print("）    AO = GPIO");
   Serial.println(PM25_AN_PIN);
-  Serial.println("  分压还原 x11   无尘基准 400mV   系数 0.20/mV");
-  Serial.println("  预期：raw 只在 0~450 之间，吹烟后应明显上升");
+  Serial.println("  分压还原 ×11　无尘基准 400mV　系数 0.20/mV");
+  Serial.println();
+  Serial.println("  预期：raw 落在 0~450 之间");
   Serial.println();
 }
 
@@ -176,7 +181,7 @@ void loop() {
   float voltageMv = 0;
   int pm25 = readPM25(raw, voltageMv);
 
-  // 记录运行区间，方便判断「读数到底会不会动」
+  // 记录运行区间，用来判断「读数到底会不会动」
   static int minRaw = 4095, maxRaw = 0;
   if (raw < minRaw) minRaw = raw;
   if (raw > maxRaw) maxRaw = raw;
@@ -193,14 +198,10 @@ void loop() {
   Serial.print(maxRaw);
   Serial.println("]");
 
-  // 每 10 秒给一句提示，免得看着一屏数字不知道该干嘛
+  // 每 10 秒给一次明确结论，免得盯着一屏数字不知道好没好
   static int count = 0;
   if (++count % 10 == 0) {
-    Serial.println("  ↑ 试试：在进气口附近点根蚊香 / 吹口气，看 raw 会不会涨");
-    if (minRaw == maxRaw) {
-      Serial.println("  ⚠ raw 一直没变过 —— 可能是 LED 极性反了，把 LED_ON_LEVEL 改成 ");
-      Serial.println(LED_ON_LEVEL == HIGH ? "LOW 再烧一次" : "HIGH 再烧一次");
-    }
+    selfCheck(minRaw, maxRaw);
   }
 
   delay(1000);
