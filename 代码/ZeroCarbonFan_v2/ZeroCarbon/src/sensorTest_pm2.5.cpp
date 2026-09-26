@@ -51,8 +51,8 @@ const int PM25_AN_PIN  = 34;   // 接转接板的 AO。ADC1_CH6，且 GPIO34 是
 // ================== LED 极性 ==================
 // 厂商两份例程都写「高电平点亮」，所以默认 HIGH。
 // 若串口一直显示 raw 恒定不动、点蚊香也没反应 → 改成 LOW 再烧一次。
-const int LED_ON_LEVEL  = HIGH;
-const int LED_OFF_LEVEL = LOW;
+const int LED_ON_LEVEL  = LOW;
+const int LED_OFF_LEVEL = HIGH;
 
 // ================== 采样时序（手册要求，别改） ==================
 // Sharp 手册「Recommended input condition for LED」：
@@ -102,10 +102,11 @@ int filterAvg(int sample) {
 
 // ================== 读一次 ==================
 // 会阻塞约 10ms（必须等够脉冲周期）。每秒读一次完全无所谓。
-int readPM25(int& rawOut, float& voltageMvOut) {
+int readPM25(int& rawOut, float& voltageMvOut, int& rawInstantOut) {
   digitalWrite(PM25_LED_PIN, LED_ON_LEVEL);   // 点亮传感器内部 LED
   delayMicroseconds(SAMPLING_US);             // 等 280µs，让光路稳定
   int raw = analogRead(PM25_AN_PIN);          // 在脉冲开始后 280µs 处采样
+  rawInstantOut = raw;                        // 未经滤波的瞬时值，用来分辨「真 0V」还是「悬空乱跳」
   delayMicroseconds(PULSE_TAIL_US);           // 再亮 40µs，凑满 320µs 脉宽
   digitalWrite(PM25_LED_PIN, LED_OFF_LEVEL);  // 熄灭 LED
   delayMicroseconds(SLEEP_US);                // 补足 10ms 周期
@@ -152,6 +153,25 @@ void selfCheck(int minRaw, int maxRaw) {
   Serial.println();
 }
 
+// ================== 开机自检：先确定 LED 到底亮不亮、哪种极性才亮 ==================
+// 红外 LED 肉眼看不见，但**手机摄像头能拍到**（有些手机后置有 IR 滤镜，用前置）。
+// 这个函数让 ILED 交替常亮各 2 秒 —— 哪一段能看到红外微光，那段就是正确的点亮电平。
+// 只在开机跑一次，跑完再进正常采样。
+void ledBringUpTest() {
+  Serial.println("  ── ILED 接线自检（用手机摄像头对着传感器内部看）──");
+  Serial.println("     红外看不见，必须用手机摄像头！有些机子后置有 IR 滤镜，用前置。");
+  Serial.println("     现在：ILED 输出【高电平】保持 2 秒…");
+  digitalWrite(PM25_LED_PIN, HIGH);
+  delay(2000);
+  Serial.println("     现在：ILED 输出【低电平】保持 2 秒…");
+  digitalWrite(PM25_LED_PIN, LOW);
+  delay(2000);
+  Serial.println("     ↑ 哪一段看到了红外微光，把 LED_ON_LEVEL 设成那个电平。");
+  Serial.println("       两段都看不到 → 不是极性问题，是供电/共地/接线（见下方提示）。");
+  Serial.println("  ──────────────────────────────────────────────");
+  Serial.println();
+}
+
 // ================== 初始化 ==================
 void setup() {
   // 115200 必须和 platformio.ini 的 monitor_speed 一致，否则是乱码
@@ -174,6 +194,8 @@ void setup() {
   Serial.println();
   Serial.println("  预期：raw 落在 0~450 之间");
   Serial.println();
+
+  ledBringUpTest();   // 开机先做一次 LED 接线自检（下面采样循环接着跑）
 }
 
 // ================== 主循环 ==================
@@ -182,7 +204,8 @@ void setup() {
 void loop() {
   int raw = 0;
   float voltageMv = 0;
-  int pm25 = readPM25(raw, voltageMv);
+  int rawInstant = 0;
+  int pm25 = readPM25(raw, voltageMv, rawInstant);
 
   // 记录运行区间，用来判断「读数到底会不会动」
   static int minRaw = 4095, maxRaw = 0;
@@ -191,6 +214,8 @@ void loop() {
 
   Serial.print("raw=");
   Serial.print(raw);
+  Serial.print("  瞬时=");
+  Serial.print(rawInstant);   // 未滤波：恒定 0 = 引脚真是 0V；乱跳 = 引脚悬空
   Serial.print("  Vo=");
   Serial.print(voltageMv, 0);
   Serial.print("mV  PM2.5=");
