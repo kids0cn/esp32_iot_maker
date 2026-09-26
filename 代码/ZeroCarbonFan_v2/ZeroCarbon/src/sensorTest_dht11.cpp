@@ -8,7 +8,7 @@
  *   YL-47 模块        ESP32
  *   ─────────────────────────────────────────
  *   VCC  (1 脚)  ───→  3.3V        ⚠️ 见下方「为什么接 3.3V」
- *   DATA (2 脚)  ───→  GPIO4       ⚠️ 见下方「引脚选择」
+ *   DATA (2 脚)  ───→  GPIO27      ⚠️ 见下方「引脚选择」
  *   GND  (3 脚)  ───→  GND
  *
  *   **上拉电阻不用自己加** —— YL-47 模块板上已经有 R1 4.7k 了
@@ -21,10 +21,12 @@
  *   长期接有打坏引脚的风险。接 3.3V 则 DATA 摆幅 0~3.3V，安全。
  *   （和光敏模块同一个道理，和 PM2.5 转接板相反 —— 那块必须 5V。）
  *
- * ── 引脚选择：GPIO4 ───────────────────────────
+ * ── 引脚选择：GPIO27 ──────────────────────────
  *   DHT 是**单总线数字信号**，不是模拟量，所以不挑 ADC，普通 GPIO 就行。
- *   GPIO4 空闲、非 strapping（0/2/5/12/15）、非 Flash（6~11）、非串口（1/3）。
+ *   GPIO27 空闲、非 strapping（0/2/5/12/15）、非 Flash（6~11）、非串口（1/3）。
  *   现有占用：14（PM2.5 ILED）、32（PM2.5 AO）、35（光敏 AO）。
+ *   （GPIO27 虽然也是 ADC2/Touch7，但 DHT 用的是数字信号，不碰 ADC，
+ *     所以「ADC2 与 WiFi 冲突」那条限制在这里不适用。）
  *
  * ── ⚠️ 两条硬约束（手册要求，不遵守读出来就是乱的）──
  *   ① **上电后必须等 1 秒**才能发指令 ——
@@ -52,7 +54,7 @@
 #include <Arduino.h>
 
 // ================== 引脚 ==================
-const int DHT_PIN = 4;
+const int DHT_PIN = 27;
 
 // ================== 采样周期 ==================
 const unsigned long DHT_READ_MS = 2000;   // 2 秒读一次（手册要求 ≥1 秒）
@@ -126,7 +128,7 @@ void setup() {
 
   Serial.println();
   Serial.println("=== DHT11 温湿度传感器测试（YL-47 模块）===");
-  Serial.println("  接线：VCC→3.3V（不是5V）  DATA→GPIO4  GND→GND");
+  Serial.println("  接线：VCC→3.3V（不是5V）  DATA→GPIO27  GND→GND");
   Serial.print("  数据脚 = GPIO");
   Serial.println(DHT_PIN);
   Serial.println("  模块上已有 4.7k 上拉 + 电源灯 D1，D1 亮 = 通电");
@@ -177,7 +179,7 @@ void loop() {
       Serial.println("  ── 连续 3 次读失败，按这个顺序查 ──────────────");
       Serial.println("   1. 模块上的电源灯 D1 亮吗？不亮 → VCC/GND 没接好");
       Serial.println("   2. VCC 接的是 3.3V 吗？（手册 3~5.5V 都行，但别飞线到 5V）");
-      Serial.println("   3. DATA 真的插在 GPIO4 上吗？换根杜邦线试试");
+      Serial.println("   3. DATA 真的插在 GPIO27 上吗？换根杜邦线试试");
       Serial.println("   4. GND 和 ESP32 共地了吗？");
       Serial.println("   5. 上电后等够 1 秒了吗？（手册要求，本程序已自动等）");
       Serial.println("   ──────────────────────────────────────────");
