@@ -47,9 +47,11 @@
 #include <WebServer.h>
 #include <DNSServer.h>
 #include "index_html.h"
-#include "light.h"          // 光照模块：引脚/阈值/读取都在 light.h，本文件只做装配
-#include "pm25.h"           // PM2.5 模块（GP2Y1014AU + 转接板）
-#include "dht11.h"          // 温湿度模块（DHT11 + YL-47，用 DHTesp 库）
+#include "settings.h"       // 阈值和模式（存 NVS，断电不丢）
+#include "light.h"          // 光照：引脚 + lightInit/lightRead
+#include "pm25.h"           // PM2.5：GP2Y1014AU + 转接板
+#include "dht11.h"          // 温湿度：DHT11 + YL-47（用 DHTesp 库）
+#include "relay.h"          // 4 路继电器（光耦隔离，低电平触发）
 
 // ================== WiFi 热点配置 ==================
 // 手机连的就是这两个。改名字改密码只改这里。
@@ -71,56 +73,58 @@ WebServer server(80);
 const byte DNS_PORT = 53;
 DNSServer dnsServer;
 
-// ================== 运行状态 ==================
-// 全部只放在 RAM 里：断电或复位就回到默认值。
-// 没有用 NVS/Flash 做持久化 —— 现在是联调阶段，先保持简单。
-enum Mode { MODE_AUTO, MODE_MANUAL };
-Mode mode = MODE_AUTO;                  // 开机默认自动模式
+// ================== 4 路设备的通道号 ==================
+// 和 relay.h 的 RELAY_PIN 下标一一对应。改设备分配时改 relay.h，这里跟着改。
+enum Dev { DEV_FAN = 0, DEV_LIGHT = 1, DEV_DEHUM = 2, DEV_AC = 3 };
 
-bool fanOn = false;                     // 风扇状态（只是变量，没接真实继电器）
-int pm25 = 0;                           // 最近一次 PM2.5 读数，由 loop() 每秒刷新一次
-
-// DHT11 的读数。**-1 表示"还没成功读到过"**，网页上显示「未接」。
-// ★ 读失败时**不覆盖**这两个值 —— 保留上一次成功的读数。
-//   原因：DHT11 靠微秒时序通信，开着 WiFi 时会偶发失败，
-//   如果失败就清零，网页上的温湿度会时不时跳成 0，看着像坏了。
-int8_t dhtTemp = -1;
+// ================== 传感器读数缓存（RAM，掉电无所谓） ==================
+int pm25 = 0;                            // 每秒刷新
+int lightPct = 0;                        // 每 200ms 刷新
+int8_t dhtTemp = -1;                     // 每 2 秒刷新
 int8_t dhtHumi = -1;
+// DHT11 初值 -1 = 「还没成功读到过」，网页显示「未接」。
+// ★ 读失败时**不覆盖** —— DHT11 靠微秒时序通信，开着 WiFi 会偶发失败，
+//   失败就清零的话，网页温湿度会时不时跳成 0，看着像坏了。
 
-const int PM25_THRESHOLD_ON = 75;       // 超过这个值开风扇
-const int PM25_THRESHOLD_OFF = 35;      // 低于这个值关风扇（和上面构成回差，防止频繁启停）
-// ⚠️ 上面的 50~75 回差，是为了防止数值在阈值附近抖动时继电器反复咔哒
-//    （又吵又伤触点）。这是照搬原版固件的设计。
-const unsigned long PM25_SAMPLE_MS = 1000;   // PM2.5 采样周期：1 秒一次
+const unsigned long PM25_SAMPLE_MS  = 1000;   // PM2.5 每秒一次
+const unsigned long LIGHT_SAMPLE_MS = 200;    // 光照 200ms 一次（快，可以勤快点）
+// 温湿度的周期在 dht11.h 的 DHT_READ_MS（2 秒）
 
-// 光照模块已拆到 src/light.h（引脚、阈值、lightInit/lightRead 都在那）。
-// 本文件只负责：常量汇总 / setup 装配 / 路由 / 把各模块状态拼成 JSON。
-//
-// 以后新增传感器/继电器/语音，同样各建一个 .h，在这里 include 一次、
-// setup 里 init 一次、sendState 里 read 一次 —— platformio.ini 不用改
-// （build_src_filter 只筛 .cpp/.ino，管不到头文件）。
+// 用户可调的阈值和模式 —— setup 里由 settingsLoad() 从 NVS 装载，改动后 settingsSave()。
+// ⚠️ 为什么必须存 NVS：普通变量在 RAM 里，断电就没了 —— 用户在网页上设的值
+//    会「凭空消失」、重启后回默认。这个坑本项目已经踩过一次（模式断电复位）。
+Settings set;
 
 // ================== 统一的 JSON 状态响应 ==================
 // 页面每秒来问一次；每个会改状态的接口也用它回话，格式统一好处理。
+// ★ 所有数值都取**缓存**，不在这儿现读传感器 —— 那会把网页请求卡住。
 void sendState() {
   String json = "{";
   json += "\"pm25\":" + String(pm25);
-  json += ",\"fan\":" + String(fanOn ? "true" : "false");
-  json += ",\"mode\":\"" + String(mode == MODE_AUTO ? "auto" : "manual") + "\"";
+  json += ",\"mode\":\"" + String(set.mode == 0 ? "auto" : "manual") + "\"";
 
-  // 光照：交给模块读，暗/亮 与 强度 都来自这一次读取
-  int lightPct = 0;
-  bool lightDark = false;
-  lightRead(lightPct, lightDark);
-  json += ",\"light\":\"" + String(lightDark ? "dark" : "bright") + "\"";
+  // 光照：强度百分比 + 由**用户阈值**推出的暗/亮（同一个数据源，不会打架）
   json += ",\"lightPct\":" + String(lightPct);
+  json += ",\"light\":\"" + String(lightPct < set.lightDark ? "dark" : "bright") + "\"";
 
-  // 温湿度：同样用缓存值（DHT 读一次要几十毫秒，不能在这里读）
+  // 温湿度（DHT11 读失败时缓存值不更新，-1 = 还没读到过）
   json += ",\"temp\":" + String(dhtTemp);
   json += ",\"humi\":" + String(dhtHumi);
 
-  json += ",\"on\":" + String(PM25_THRESHOLD_ON);
-  json += ",\"off\":" + String(PM25_THRESHOLD_OFF);
+  // 4 路设备：**读真实引脚电平**，不靠变量记「刚才设成了什么」——
+  // 变量会骗人，读引脚才是事实（原版固件对风扇就是这么做的）
+  json += ",\"devFan\":"   + String(relayGet(DEV_FAN)   ? "1" : "0");
+  json += ",\"devLight\":" + String(relayGet(DEV_LIGHT) ? "1" : "0");
+  json += ",\"devDehum\":" + String(relayGet(DEV_DEHUM) ? "1" : "0");
+  json += ",\"devAc\":"    + String(relayGet(DEV_AC)    ? "1" : "0");
+
+  // 用户可调阈值（回填给网页的滑杆）
+  json += ",\"setLight\":"   + String(set.lightDark);
+  json += ",\"setPm25On\":"  + String(set.pm25On);
+  json += ",\"setPm25Off\":" + String(set.pm25Off);
+  json += ",\"setHumi\":"    + String(set.humiOn);
+  json += ",\"setTemp\":"    + String(set.tempOn);
+
   json += "}";
   server.send(200, "application/json", json);
 }
@@ -134,23 +138,52 @@ void setupServer() {
 
   server.on("/api/state", sendState);   // 页面每秒轮询这个
 
-  // 风扇：目前只改内存里的变量，不碰任何 GPIO（没核实引脚，不能乱输出）
-  server.on("/fan/on", []() {
-    fanOn = true;
-    sendState();
-  });
-  server.on("/fan/off", []() {
-    fanOn = false;
+  // ── 4 路设备开关：/dev?ch=1~4&on=1|0 ──────────────────
+  // 用一个路由 + 查询参数，而不是注册 8 条路径 —— 页面 cmd() 直接拼 URL 就行，
+  // 以后加第 5 路也不用改这里（relay.h 加一个脚、网页加一行）。
+  server.on("/dev", []() {
+    int ch = server.arg("ch").toInt() - 1;          // 页面传 1~4，内部用 0~3
+    bool on = (server.arg("on") == "1");
+    if (ch >= 0 && ch < RELAY_COUNT) {
+      relaySet(ch, on);
+      Serial.print("  [网页] 通道 ");
+      Serial.print(ch + 1);
+      Serial.print(" → ");
+      Serial.println(on ? "吸合" : "释放");
+    }
     sendState();
   });
 
-  // 模式切换
+  // ── 保存阈值：/set?light=&pm25on=&pm25off=&humi=&temp= ──
+  // 必须用 hasArg() 判断页面有没有传这个参数：缺了就保持原值。
+  // 否则 server.arg() 返回空串、toInt() 得 0，会把用户设的好好的值清成 0。
+  server.on("/set", []() {
+    if (server.hasArg("light"))   set.lightDark = constrain(server.arg("light").toInt(),   5, 95);
+    if (server.hasArg("pm25on"))  set.pm25On    = constrain(server.arg("pm25on").toInt(),   1, 500);
+    if (server.hasArg("pm25off")) set.pm25Off   = constrain(server.arg("pm25off").toInt(),  0, 400);
+    if (server.hasArg("humi"))    set.humiOn    = constrain(server.arg("humi").toInt(),    20, 95);
+    if (server.hasArg("temp"))    set.tempOn    = constrain(server.arg("temp").toInt(),    10, 50);
+    // 回差必须成立：关阈值要严格小于开阈值，否则自动逻辑会自相打架
+    if (set.pm25Off >= set.pm25On) set.pm25Off = set.pm25On - 1;
+    if (!settingsValid(set)) set = settingsDefault();   // 最后兜一道
+    settingsSave(set);                                  // ★ 存 NVS，断电不丢
+    Serial.println("  [网页] 阈值已保存 → 光照<" + String(set.lightDark) + "%  PM25 "
+                   + String(set.pm25Off) + "/" + String(set.pm25On)
+                   + "  湿>" + String(set.humiOn) + "%  温>" + String(set.tempOn) + "C");
+    sendState();
+  });
+
+  // ── 模式切换（也存 NVS）─────────────────────────────
+  // 这个坑本项目踩过：只存 RAM 的话，断电重启模式就回「自动」，
+  // 用户会觉得"我明明切过手动"。存进 NVS 才不会丢。
   server.on("/mode/auto", []() {
-    mode = MODE_AUTO;
+    set.mode = 0;
+    settingsSave(set);
     sendState();
   });
   server.on("/mode/manual", []() {
-    mode = MODE_MANUAL;
+    set.mode = 1;
+    settingsSave(set);
     sendState();
   });
 
@@ -185,9 +218,14 @@ void setupServer() {
 void setup() {
   Serial.begin(115200);
 
+  // ★ 先从 NVS 加载设置 —— 后面所有初始化和自动逻辑都依赖它
+  set = settingsLoad();
+
   lightInit();   // 光照 AO：输入模式，不驱动电平（细节见 light.h）
   pm25Init();    // PM2.5：LED 脚设为输出并熄灭、AO 脚设为输入（细节见 pm25.h）
   dht11Init();   // 温湿度：注册 DHT11 型号，并等 1 秒（手册要求，详见 dht11.h）
+  relayInit();   // 4 路继电器：**先写输出锁存器再切 OUTPUT**，
+                 // 否则上电瞬间会全吸一下（详见 relay.h）
 
   // 开热点。softAP 内部默认分配 192.168.4.1，不用额外配。
   WiFi.softAP(WIFI_SSID, WIFI_PASS);
@@ -216,13 +254,17 @@ void setup() {
   Serial.print(LIGHT_AO_PIN);
   Serial.print("（DO 不接）  强度=");
   {
-    int pct = 0; bool dark = false;
-    lightRead(pct, dark);
+    int pct = 0;
+    lightRead(pct);
     Serial.print(pct);
     Serial.print("%  判定=");
-    Serial.print(dark ? "暗" : "亮");
+    Serial.print(pct < set.lightDark ? "暗" : "亮");   // 用用户阈值判定
   }
   Serial.println();
+  Serial.print("  继电器：IN1=GPIO25 IN2=GPIO26 IN3=GPIO33 IN4=GPIO13");
+  Serial.print("  初态=");
+  for (int i = 0; i < RELAY_COUNT; i++) Serial.print(relayGet(i) ? "吸" : "放");
+  Serial.println("  （应该全「放」）");
   Serial.print("  PM2.5：ILED=GPIO");
   Serial.print(PM25_LED_PIN);
   Serial.print("  AO=GPIO");
@@ -261,36 +303,30 @@ void loop() {
   dnsServer.processNextRequest();  // 处理 DNS 查询，同样不能停
   server.handleClient();           // 必须频繁调用，中间不能塞 delay()
 
-  // ── PM2.5：每 1 秒采一次 ────────────────────────────────
-  // pm25Read() 会阻塞约 10ms（必须等够 LED 的 10ms 脉冲周期），所以：
-  //   · 只能在这里定时采 —— **绝不能放进 sendState()**，
-  //     那会让每次网页请求都多等 10ms，页面直接变卡
-  //   · 每秒阻塞 10ms ≈ 1%；handleClient() 一秒被调上千次，这点时间无感
-  //   · 采到的值存进全局 pm25，sendState() 直接用缓存值
-  static unsigned long lastPm25Ms = 0;
   unsigned long now = millis();
+
+  // ── 光照：每 200ms 采一次（快，没有阻塞问题）─────────────
+  static unsigned long lastLightMs = 0;
+  if (now - lastLightMs >= LIGHT_SAMPLE_MS) {
+    lastLightMs = now;
+    lightRead(lightPct);        // 模块只给强度；「暗/亮」的阈值在 main 这边
+  }
+
+  // ── PM2.5：每 1 秒采一次 ────────────────────────────────
+  // pm25Read() 阻塞约 10ms（必须等够 LED 的 10ms 脉冲周期），所以：
+  //   · 只能在这里定时采 —— **绝不能放进 sendState()**，那会把网页请求卡住
+  //   · 每秒阻塞 10ms ≈ 1%；handleClient() 一秒被调上千次，这点时间无感
+  static unsigned long lastPm25Ms = 0;
   if (now - lastPm25Ms >= PM25_SAMPLE_MS) {
     lastPm25Ms = now;
     pm25 = pm25Read();
-
-    // 自动模式下按 PM2.5 控制风扇（带 35~75 回差，见上面的阈值常量）
-    // ⚠️ 风扇目前只是 RAM 变量、没接继电器 —— 这里翻面了硬件也不会动。
-    if (mode == MODE_AUTO) {
-      if (pm25 > PM25_THRESHOLD_ON)       fanOn = true;
-      else if (pm25 < PM25_THRESHOLD_OFF) fanOn = false;
-    }
   }
 
   // ── DHT11 温湿度：每 2 秒读一次 ──────────────────────────
-  // DHT 读一次要几十毫秒（主机要拉低 18ms 等它对答），同样只能定时采，
-  // **不能放进 sendState()**。
-  //
+  // DHT 读一次要几十毫秒（主机先拉低 18ms 等它对答），同样只能定时采。
   // ★ 失败时什么都不做 —— **不覆盖** dhtTemp/dhtHumi，保留上一次成功的读数。
-  //   原因：DHT11 靠微秒时序通信，而主程序开着 WiFi 热点，中断会打断时序，
-  //   偶发失败是**固有现象**（换库也只是少失败一点，不是不失败）。
-  //   如果失败就清零，网页上的温湿度会时不时跳成 0，看着像坏了。
-  //   dhtTemp/dhtHumi 初值是 -1，网页见 -1 会显示「未接」——
-  //   所以开机后第一次读成功之前，页面显示「未接」是正常的。
+  //   DHT11 靠微秒时序，开着 WiFi 会偶发失败；失败就清零会让网页温湿度
+  //   时不时跳成 0。初值 -1 = 还没成功读到过，网页显示「未接」。
   static unsigned long lastDhtMs = 0;
   if (now - lastDhtMs >= DHT_READ_MS) {
     lastDhtMs = now;
@@ -298,6 +334,34 @@ void loop() {
     if (dht11Read(t, h)) {
       dhtTemp = t;
       dhtHumi = h;
+    }
+  }
+
+  // ── 自动控制：只在自动模式下跑 ───────────────────────────
+  // 4 路一一对应，每路都带回差 —— 否则数值在阈值附近抖动时，
+  // 继电器会反复咔哒，又吵又伤触点（这是照搬原版固件对风扇的设计）。
+  //
+  // ★ 手动模式（set.mode == 1）时整段跳过，网页按钮说了算。
+  if (set.mode == 0) {
+    // ① 进风 + 排风扇 ← PM2.5（开/关双阈值）
+    if (pm25 > set.pm25On)        relaySet(DEV_FAN, true);
+    else if (pm25 < set.pm25Off)  relaySet(DEV_FAN, false);
+
+    // ② 灯 ← 光照（低于阈值开灯，回差 5%）
+    if (lightPct < set.lightDark)          relaySet(DEV_LIGHT, true);
+    else if (lightPct > set.lightDark + 5) relaySet(DEV_LIGHT, false);
+
+    // ③ 抽湿机 ← 湿度（高于阈值开，回差 5%）
+    //    dhtHumi = -1 表示 DHT11 还没成功读到过，这时不动
+    if (dhtHumi >= 0) {
+      if (dhtHumi > set.humiOn)          relaySet(DEV_DEHUM, true);
+      else if (dhtHumi < set.humiOn - 5) relaySet(DEV_DEHUM, false);
+    }
+
+    // ④ 空调 ← 温度（高于阈值开，回差 1°C）
+    if (dhtTemp >= 0) {
+      if (dhtTemp > set.tempOn)          relaySet(DEV_AC, true);
+      else if (dhtTemp < set.tempOn - 1) relaySet(DEV_AC, false);
     }
   }
 }

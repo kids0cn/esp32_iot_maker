@@ -57,16 +57,40 @@ const char INDEX_HTML[] = R"rawliteral(
   .dot.dark{background:#f59e0b; box-shadow:0 0 10px #f59e0b}
   .dot.bright{background:#22c55e; box-shadow:0 0 10px #22c55e}
 
-  /* ── 按钮 ── */
-  .btns{display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:16px}
+  /* ── 按钮（现在只有「控制模式」卡片里的 自动/手动 在用）── */
   button{
     font:inherit; font-size:16px; font-weight:600; padding:14px 0; border:none;
     border-radius:13px; color:#fff; cursor:pointer; transition:opacity .2s, transform .1s;
   }
   button:active:not(:disabled){transform:scale(.97)}
   button:disabled{opacity:.28; cursor:not-allowed}
-  .on-btn{background:var(--ok)}
-  .off-btn{background:var(--bad)}
+  /* 注：早先风扇卡片用的 .btns/.on-btn/.off-btn 已删 —— 那个卡片换成了
+     4 路设备行（点整行切换），不再需要两个大按钮。 */
+
+  /* ── 设备行（4 路继电器，整行可点）── */
+  .dev{cursor:pointer; padding:6px 0; border-radius:10px; transition:background .15s}
+  .dev:active{background:#0e1729}
+  .dev.off{opacity:.55}          /* 自动模式下整行置灰 = 不可点 */
+  .dev .k{color:var(--fg); font-size:15px}
+
+  /* ── 设置行（滑杆）── */
+  .srow{display:flex; align-items:center; gap:10px; margin-top:14px}
+  .srow label{font-size:13px; color:var(--dim); width:62px; flex-shrink:0}
+  .srow .val{width:56px; text-align:right; font-size:14px; font-weight:600; color:var(--accent)}
+  .srow input[type=range]{
+    flex:1; -webkit-appearance:none; appearance:none;
+    height:4px; border-radius:999px; background:var(--line); outline:none; margin:0;
+  }
+  .srow input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none; appearance:none;
+    width:18px; height:18px; border-radius:50%;
+    background:var(--accent); border:2px solid var(--bg); cursor:pointer;
+  }
+  .srow input[type=range]::-moz-range-thumb{
+    width:18px; height:18px; border-radius:50%;
+    background:var(--accent); border:2px solid var(--bg); cursor:pointer;
+  }
+  .srow input[type=range]:disabled{opacity:.4}
 
   /* ── 模式切换 ── */
   .seg{display:grid; grid-template-columns:1fr 1fr; gap:6px;
@@ -108,15 +132,26 @@ const char INDEX_HTML[] = R"rawliteral(
   </div>
 
   <div class="card">
-    <div class="row">
-      <span class="k">风扇</span>
-      <span class="v"><span id="dot" class="dot off"></span><span id="fan">--</span></span>
+    <div class="row"><span class="k">设备</span><span class="v" id="devMode">--</span></div>
+
+    <div class="row dev" data-ch="1" data-key="devFan">
+      <span class="k">进风 / 排风扇</span>
+      <span class="v"><span class="dot off" id="d0"></span><span id="t0">--</span></span>
     </div>
-    <div class="btns">
-      <button id="btnOn"  class="on-btn">开启风扇</button>
-      <button id="btnOff" class="off-btn">关闭风扇</button>
+    <div class="row dev" data-ch="2" data-key="devLight">
+      <span class="k">灯</span>
+      <span class="v"><span class="dot off" id="d1"></span><span id="t1">--</span></span>
     </div>
-    <div id="fanHint" class="hint"></div>
+    <div class="row dev" data-ch="3" data-key="devDehum">
+      <span class="k">抽湿机</span>
+      <span class="v"><span class="dot off" id="d2"></span><span id="t2">--</span></span>
+    </div>
+    <div class="row dev" data-ch="4" data-key="devAc">
+      <span class="k">空调</span>
+      <span class="v"><span class="dot off" id="d3"></span><span id="t3">--</span></span>
+    </div>
+
+    <div id="devHint" class="hint"></div>
   </div>
 
   <div class="card">
@@ -125,11 +160,39 @@ const char INDEX_HTML[] = R"rawliteral(
       <button id="mAuto">自动</button>
       <button id="mManual">手动</button>
     </div>
-    <div class="hint">
-      自动模式：PM2.5 &gt; <b id="thOn">--</b> 自动开风扇，&lt; <b id="thOff">--</b> 自动关。
-      中间区间保持不动（回差，防止反复启停）。<br>
-      手动模式：由你点按钮决定，自动逻辑不介入。
+    <div class="hint" id="modeHint"></div>
+  </div>
+
+  <div class="card">
+    <div class="row"><span class="k">自动控制阈值</span></div>
+
+    <div class="srow">
+      <label for="sLight">光照低于</label>
+      <input type="range" id="sLight" min="5" max="95" step="5">
+      <span class="val" id="vLight">--</span>
     </div>
+    <div class="srow">
+      <label for="sPm25On">空气差于</label>
+      <input type="range" id="sPm25On" min="20" max="300" step="5">
+      <span class="val" id="vPm25On">--</span>
+    </div>
+    <div class="srow">
+      <label for="sPm25Off">空气好于</label>
+      <input type="range" id="sPm25Off" min="5" max="150" step="5">
+      <span class="val" id="vPm25Off">--</span>
+    </div>
+    <div class="srow">
+      <label for="sHumi">湿度高于</label>
+      <input type="range" id="sHumi" min="20" max="95" step="1">
+      <span class="val" id="vHumi">--</span>
+    </div>
+    <div class="srow">
+      <label for="sTemp">温度高于</label>
+      <input type="range" id="sTemp" min="10" max="50" step="1">
+      <span class="val" id="vTemp">--</span>
+    </div>
+
+    <div class="hint">拖动松手即生效，并<b>保存到 Flash</b> —— 断电重启也不会丢。自动模式下 4 路由传感器驱动，阈值照样生效。</div>
   </div>
 </div>
 
@@ -137,6 +200,15 @@ const char INDEX_HTML[] = R"rawliteral(
 (function () {
   var $ = function (id) { return document.getElementById(id); };
   var state = null;
+
+  // 4 路设备 —— key 必须和固件 sendState() 发的字段名一致
+  // ch 是页面传给板子的通道号（1~4，板子内部是数组下标 0~3）
+  var DEVS = [
+    { ch: 1, key: 'devFan'   },
+    { ch: 2, key: 'devLight' },
+    { ch: 3, key: 'devDehum' },
+    { ch: 4, key: 'devAc'    }
+  ];
 
   // 三档颜色写死成具体色值，不用 CSS 变量也不碰 color-mix()——
   // 后者要 Safari 16.2+ / Chrome 111+，演示用的手机若是老机型会掉样式。
@@ -195,25 +267,45 @@ const char INDEX_HTML[] = R"rawliteral(
       $('humi').textContent = s.humi + ' %RH';
     }
 
-    // 风扇状态
-    $('fan').textContent = s.fan ? '运行中' : '已停止';
-    $('dot').className = 'dot ' + (s.fan ? 'on' : 'off');
-
-    // 模式
+    // ── 4 路设备状态（固件读的是**真实引脚电平**，不是变量）──
     var auto = (s.mode === 'auto');
+    for (var i = 0; i < DEVS.length; i++) {
+      var on = s[DEVS[i].key] === '1';
+      $('d' + i).className = 'dot ' + (on ? 'on' : 'off');
+      $('t' + i).textContent = on ? '运行中' : '已关闭';
+      // 自动模式下 4 路全由传感器驱动 —— 置灰并禁点。
+      // 否则点了也会被下一轮自动逻辑覆盖回去，徒增困惑。
+      var row = document.querySelectorAll('.row.dev')[i];
+      if (row) row.classList.toggle('off', auto);
+    }
+    $('devMode').textContent = auto ? '自动' : '手动';
+    $('devHint').textContent = auto
+      ? '自动模式：4 路都由传感器驱动，切到「手动」才能点。'
+      : '手动模式：点任意一行即可开 / 关该路继电器。';
+
+    // ── 模式 ──
     $('mAuto').className   = auto ? 'active' : '';
     $('mManual').className = auto ? '' : 'active';
+    $('modeHint').textContent = auto
+      ? 'PM2.5 差 → 开风扇；光照暗 → 开灯；湿度高 → 开抽湿机；温度高 → 开空调。'
+        + '每路都带回差，防止在阈值附近反复启停。'
+      : '上面四行说了算，自动逻辑不介入。阈值在下面可以改。';
 
-    // 自动模式下禁用风扇按钮 —— 否则点了也会被下一轮自动逻辑覆盖，
-    // 徒增困惑。想手动控制就先切到手动模式，语义清楚，也顺便讲明白了两种模式的区别。
-    $('btnOn').disabled  = auto;
-    $('btnOff').disabled = auto;
-    $('fanHint').textContent = auto
-      ? '自动模式下由传感器控制，切到「手动」后可自行操作。'
-      : '手动模式：自动逻辑已让位，由你决定。';
+    // ── 阈值回填到滑杆 ──
+    // 只在用户没在拖动时回填（当前聚焦的滑杆跳过），免得和手指抢位置
+    setSlider('sLight',   'vLight',   s.setLight,   '%');
+    setSlider('sPm25On',  'vPm25On',  s.setPm25On,  ' µg/m³');
+    setSlider('sPm25Off', 'vPm25Off', s.setPm25Off, ' µg/m³');
+    setSlider('sHumi',    'vHumi',    s.setHumi,    '%');
+    setSlider('sTemp',    'vTemp',    s.setTemp,    '°C');
+  }
 
-    $('thOn').textContent  = s.on;
-    $('thOff').textContent = s.off;
+  // 回填一个滑杆的值。用户正在拖的那一个不动。
+  function setSlider(id, valId, v, unit) {
+    var el = $(id);
+    if (!el || document.activeElement === el) return;
+    el.value = v;
+    $(valId).textContent = v + unit;
   }
 
   async function refresh() {
@@ -234,10 +326,35 @@ const char INDEX_HTML[] = R"rawliteral(
     refresh();   // 立刻拉一次，不等定时器，点下去就有反应
   }
 
-  $('btnOn').onclick  = function () { cmd('/fan/on'); };
-  $('btnOff').onclick = function () { cmd('/fan/off'); };
+  // ── 4 路设备：点整行切换 ──
+  // 自动模式下行被加了 .off，直接忽略点击（和视觉一致）。
+  Array.prototype.forEach.call(document.querySelectorAll('.row.dev'), function (row) {
+    row.onclick = function () {
+      if (row.classList.contains('off')) return;
+      var ch  = row.getAttribute('data-ch');
+      var key = row.getAttribute('data-key');
+      var on  = state && state[key] === '1';
+      cmd('/dev?ch=' + ch + '&on=' + (on ? '0' : '1'));   // 当前是开的就发关，反之亦然
+    };
+  });
+
+  // ── 模式切换 ──
   $('mAuto').onclick   = function () { cmd('/mode/auto'); };
   $('mManual').onclick = function () { cmd('/mode/manual'); };
+
+  // ── 阈值滑杆 ──
+  // 拖动中只更新右边的数字（oninput），**松手才发请求**（onchange）。
+  // 用 input 会每移动一像素发一次，拖一下几十个请求，板子和手机都白忙。
+  [['sLight',  'light',   'vLight',   '%'],
+   ['sPm25On', 'pm25on',  'vPm25On',  ' µg/m³'],
+   ['sPm25Off','pm25off', 'vPm25Off', ' µg/m³'],
+   ['sHumi',   'humi',    'vHumi',    '%'],
+   ['sTemp',   'temp',    'vTemp',    '°C']].forEach(function (p) {
+    var el = $(p[0]);
+    if (!el) return;
+    el.oninput  = function () { $(p[2]).textContent = el.value + p[3]; };
+    el.onchange = function () { cmd('/set?' + p[1] + '=' + el.value); };
+  });
 
   refresh();
   setInterval(refresh, 1000);
