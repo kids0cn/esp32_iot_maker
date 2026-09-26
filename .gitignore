@@ -59,6 +59,8 @@ Thumbs.db
 *.A51
 *.uvopt
 *.uvoptx
+*.uvproj
+*.uvprojx
 *.uvgui.*
 *.DBK
 *.PWI
