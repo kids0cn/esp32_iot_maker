@@ -46,7 +46,7 @@
 // GPIO 0/2/4/12/13/14/15/25/26/27 是 ADC2，**WiFi 一开 analogRead 就失效**。
 // 本程序不开 WiFi，但这份参数以后要并进开热点的主程序，所以从一开始就守这条。
 const int PM25_LED_PIN = 14;   // 接转接板的 ILED（普通数字输出，哪个脚都行）
-const int PM25_AN_PIN  = 34;   // 接转接板的 AO。ADC1_CH6，且 GPIO34 是只读输入脚
+const int PM25_AN_PIN  = 32;   // 接转接板的 AO。ADC1_CH4
 
 // ================== LED 极性 ==================
 // 厂商两份例程都写「高电平点亮」，所以默认 HIGH。
@@ -125,29 +125,52 @@ int readPM25(int& rawOut, float& voltageMvOut, int& rawInstantOut) {
 
 // ================== 自检判定 ==================
 // 每 10 秒判一次，直接给结论，不用自己盯数字
-void selfCheck(int minRaw, int maxRaw) {
+void selfCheck(int minRaw, int maxRaw, int instMin, int instMax) {
+  int swing = instMax - instMin;   // 瞬时值的摆幅
+
   Serial.println();
   Serial.println("  ── 自检 ──────────────────────────────");
-  Serial.print("    raw 范围 : ");
+  Serial.print("    raw 范围   : ");
   Serial.print(minRaw);
   Serial.print(" ~ ");
   Serial.print(maxRaw);
-  Serial.println("   （正常应落在 0~450）");
+  Serial.println("   （平稳时约 50~120，吹烟后上升）");
+  Serial.print("    瞬时值摆幅 : ");
+  Serial.print(swing);
+  Serial.println("   （未滤波的原始 ADC，摆动幅度）");
 
-  if (maxRaw >= RAW_DANGER) {
+  // ① 先看引脚是不是悬空 —— 这是最常见的假象，必须第一个排除
+  if (swing > 500) {
+    Serial.println("    ❌ 瞬时值在大幅乱跳 —— **引脚悬空**！");
+    Serial.println("       AO 线没真正接通：查面包板孔位、换根杜邦线、");
+    Serial.println("       确认代码里的 PM25_AN_PIN 和实际插的脚是同一个。");
+    Serial.println("       ⚠️ 这时候 raw 显示的数值全是噪声，不是真实读数。");
+  }
+  // ② 再排除没分压（危险情况）
+  else if (maxRaw >= RAW_DANGER) {
     Serial.println("    ❌ 危险：raw 冲到 " + String(maxRaw) + "，说明 AO 没有分压！");
-    Serial.println("       转接板上可能没有 10k/1k。**立刻断电**，别继续接 GPIO34。");
+    Serial.println("       转接板上可能没有 10k/1k。**立刻断电**，别继续接 GPIO。");
   } else if (maxRaw > RAW_MAX_OK) {
     Serial.println("    ⚠️ raw 超过 450 —— 可能没分压，或 AO 接错了脚。先查线。");
-  } else if (maxRaw <= RAW_MIN_OK) {
-    Serial.println("    ❌ raw 一直是 0 —— 传感器没有输出。");
-    Serial.println("       查：VCC 是不是 5V（不是 3.3V）？GND 共地了吗？AO 接对了没？");
-  } else if (minRaw == maxRaw) {
-    Serial.println("    ⚠️ raw 恒定不变 —— 传感器可能在跑，但没看到任何光信号变化。");
-    Serial.println("       最可能：LED 极性反了 → 把 LED_ON_LEVEL 改成 LOW 再烧一次。");
-  } else {
-    Serial.println("    ✅ 传感器有响应，读数在动 —— 硬件是通的。");
-    Serial.println("       下一步：凑近点根蚊香 / 吹口气，看 raw 会不会明显往上跑。");
+  }
+  // ③ 恒 0：有线、但没信号
+  else if (maxRaw <= RAW_MIN_OK) {
+    Serial.println("    读数是 0，且瞬时值也不动 —— 引脚上有真实电平，但没有信号。两种可能：");
+    Serial.println("      (a) 传感器没通电/坏了 → 量转接板 VCC↔GND 是不是 5V；");
+    Serial.println("      (b) 传感器正常，但干净空气下 AO 只有约 55mV，");
+    Serial.println("          **ESP32 的 ADC 在低压段分辨率极差、常直接读 0**");
+    Serial.println("          （转接板的 ÷11 是给 STM32 设计的，ESP32 上会丢低端）。");
+    Serial.println("          验证法：点根蚊香，让烟靠近传感器 —— 若 raw 能升起来，就是 (b)。");
+  }
+  // ④ 恒定但非 0：可能是真实但极低的静态值
+  else if (minRaw == maxRaw) {
+    Serial.println("    ⚠️ raw 恒定不变 —— 传感器可能在跑，但没看到光信号变化。");
+    Serial.println("       把 LED_ON_LEVEL 改成相反的电平再烧一次试试。");
+  }
+  // ⑤ 正常
+  else {
+    Serial.println("    ✅ 瞬时值平稳、raw 有变化 —— 传感器在工作。");
+    Serial.println("       下一步：点根蚊香 / 吹口气靠近进气口，看 raw 明不明显往上走。");
   }
   Serial.println("  ──────────────────────────────────────");
   Serial.println();
@@ -212,6 +235,11 @@ void loop() {
   if (raw < minRaw) minRaw = raw;
   if (raw > maxRaw) maxRaw = raw;
 
+  // 瞬时值的摆幅 —— 用来分辨「引脚悬空」和「真实的低电平」
+  static int instMin = 4095, instMax = 0;
+  if (rawInstant < instMin) instMin = rawInstant;
+  if (rawInstant > instMax) instMax = rawInstant;
+
   Serial.print("raw=");
   Serial.print(raw);
   Serial.print("  瞬时=");
@@ -229,7 +257,11 @@ void loop() {
   // 每 10 秒给一次明确结论，免得盯着一屏数字不知道好没好
   static int count = 0;
   if (++count % 10 == 0) {
-    selfCheck(minRaw, maxRaw);
+    selfCheck(minRaw, maxRaw, instMin, instMax);
+    // 瞬时摆幅按「每 10 秒一个窗口」统计，下一轮重新算 ——
+    // 否则开机时抖过一次，后面每次都报「悬空」，就失去意义了。
+    instMin = 4095;
+    instMax = 0;
   }
 
   delay(1000);
