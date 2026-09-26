@@ -47,6 +47,8 @@ const char INDEX_HTML[] = R"rawliteral(
   .row{display:flex; align-items:center; justify-content:space-between}
   .row .k{font-size:15px; color:var(--dim)}
   .row .v{font-size:17px; font-weight:600}
+  /* 同一张卡片里放两行时（比如温度+湿度），行之间留点间距 */
+  .row + .row{margin-top:12px}
   .dot{display:inline-block; width:9px; height:9px; border-radius:50%;
        margin-right:8px; vertical-align:middle; background:var(--dim)}
   .dot.on{background:var(--ok); box-shadow:0 0 10px var(--ok)}
@@ -91,6 +93,17 @@ const char INDEX_HTML[] = R"rawliteral(
     <div class="row">
       <span class="k">光照</span>
       <span class="v"><span id="ldot" class="dot off"></span><span id="light">--</span></span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <span class="k">温度</span>
+      <span class="v" id="temp">--</span>
+    </div>
+    <div class="row">
+      <span class="k">湿度</span>
+      <span class="v" id="humi">--</span>
     </div>
   </div>
 
@@ -169,6 +182,17 @@ const char INDEX_HTML[] = R"rawliteral(
         ? (isDark ? '暗' : '亮')
         : (isDark ? '暗' : '亮') + ' · ' + s.lightPct + '%';
       $('ldot').className = 'dot ' + (isDark ? 'dark' : 'bright');
+    }
+
+    // 温湿度（DHT11）。固件用 -1 表示「还没成功读到过」——
+    // DHT11 开着 WiFi 时会偶发读失败，固件那边失败时**保留上一次的值**，
+    // 所以这里的 -1 只会出现在「开机后第一次读成功之前」。
+    if (s.temp === undefined || s.temp < 0) {
+      $('temp').textContent = '未接';
+      $('humi').textContent = '未接';
+    } else {
+      $('temp').textContent = s.temp + ' °C';
+      $('humi').textContent = s.humi + ' %RH';
     }
 
     // 风扇状态

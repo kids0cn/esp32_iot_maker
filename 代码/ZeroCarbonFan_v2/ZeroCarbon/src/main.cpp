@@ -15,12 +15,16 @@
  *   ✅ 网页服务 + 接口  —— 真的，手机能开、按钮有反应
  *   ✅ PM2.5 读数       —— **真的**（GP2Y1014AU + 转接板，见 pm25.h）
  *   ✅ 光照             —— 真的（光敏模块，只读 AO，见 light.h）
+ *   ✅ 温湿度           —— 真的（DHT11 + YL-47 模块，见 dht11.h）
  *   ⬜ 风扇开关         —— **只是 RAM 里的一个变量**。没接继电器，
  *                          所以「自动模式下 PM2.5 超标就开风扇」只是把变量翻个面，
  *                          硬件上什么都不会发生。
  *
- *   ※ 两个传感器都只**读**引脚，没有驱动任何输出 —— 在接上继电器之前，
+ *   ※ 三个传感器都只**读**引脚，没有驱动任何输出 —— 在接上继电器之前，
  *     不存在「引脚没核实就输出、烧板子」的风险。
+ *   ※ 三者的采样周期不同：光照随网页请求实时读（快）；
+ *     PM2.5 每秒一次、温湿度每 2 秒一次（这两个读一次要阻塞几十毫秒，
+ *     只能定时采、用缓存值，见下面对应的采样代码）。
  *
  * ── 为什么 loop() 里不能有 delay() ────────────
  *   WebServer 库靠 server.handleClient() 一轮一轮地收发数据。
@@ -45,6 +49,7 @@
 #include "index_html.h"
 #include "light.h"          // 光照模块：引脚/阈值/读取都在 light.h，本文件只做装配
 #include "pm25.h"           // PM2.5 模块（GP2Y1014AU + 转接板）
+#include "dht11.h"          // 温湿度模块（DHT11 + YL-47，用 DHTesp 库）
 
 // ================== WiFi 热点配置 ==================
 // 手机连的就是这两个。改名字改密码只改这里。
@@ -75,6 +80,13 @@ Mode mode = MODE_AUTO;                  // 开机默认自动模式
 bool fanOn = false;                     // 风扇状态（只是变量，没接真实继电器）
 int pm25 = 0;                           // 最近一次 PM2.5 读数，由 loop() 每秒刷新一次
 
+// DHT11 的读数。**-1 表示"还没成功读到过"**，网页上显示「未接」。
+// ★ 读失败时**不覆盖**这两个值 —— 保留上一次成功的读数。
+//   原因：DHT11 靠微秒时序通信，开着 WiFi 时会偶发失败，
+//   如果失败就清零，网页上的温湿度会时不时跳成 0，看着像坏了。
+int8_t dhtTemp = -1;
+int8_t dhtHumi = -1;
+
 const int PM25_THRESHOLD_ON = 75;       // 超过这个值开风扇
 const int PM25_THRESHOLD_OFF = 35;      // 低于这个值关风扇（和上面构成回差，防止频繁启停）
 // ⚠️ 上面的 50~75 回差，是为了防止数值在阈值附近抖动时继电器反复咔哒
@@ -102,6 +114,10 @@ void sendState() {
   lightRead(lightPct, lightDark);
   json += ",\"light\":\"" + String(lightDark ? "dark" : "bright") + "\"";
   json += ",\"lightPct\":" + String(lightPct);
+
+  // 温湿度：同样用缓存值（DHT 读一次要几十毫秒，不能在这里读）
+  json += ",\"temp\":" + String(dhtTemp);
+  json += ",\"humi\":" + String(dhtHumi);
 
   json += ",\"on\":" + String(PM25_THRESHOLD_ON);
   json += ",\"off\":" + String(PM25_THRESHOLD_OFF);
@@ -171,6 +187,7 @@ void setup() {
 
   lightInit();   // 光照 AO：输入模式，不驱动电平（细节见 light.h）
   pm25Init();    // PM2.5：LED 脚设为输出并熄灭、AO 脚设为输入（细节见 pm25.h）
+  dht11Init();   // 温湿度：注册 DHT11 型号，并等 1 秒（手册要求，详见 dht11.h）
 
   // 开热点。softAP 内部默认分配 192.168.4.1，不用额外配。
   WiFi.softAP(WIFI_SSID, WIFI_PASS);
@@ -220,6 +237,22 @@ void setup() {
     Serial.print("mV)");
   }
   Serial.println();
+  Serial.print("  温湿度：DATA=GPIO");
+  Serial.print(DHT_PIN);
+  Serial.print("  首次读数=");
+  {
+    int8_t t = 0, h = 0;
+    if (dht11Read(t, h)) {          // setup 里读一次没问题，此时还没开始服务网页
+      dhtTemp = t; dhtHumi = h;
+      Serial.print(t);
+      Serial.print(" C / ");
+      Serial.print(h);
+      Serial.print(" %RH");
+    } else {
+      Serial.print("读失败（正常现象 —— DHT11 偶发失败，后面会自动重试）");
+    }
+  }
+  Serial.println();
   Serial.println();
 }
 
@@ -245,6 +278,26 @@ void loop() {
     if (mode == MODE_AUTO) {
       if (pm25 > PM25_THRESHOLD_ON)       fanOn = true;
       else if (pm25 < PM25_THRESHOLD_OFF) fanOn = false;
+    }
+  }
+
+  // ── DHT11 温湿度：每 2 秒读一次 ──────────────────────────
+  // DHT 读一次要几十毫秒（主机要拉低 18ms 等它对答），同样只能定时采，
+  // **不能放进 sendState()**。
+  //
+  // ★ 失败时什么都不做 —— **不覆盖** dhtTemp/dhtHumi，保留上一次成功的读数。
+  //   原因：DHT11 靠微秒时序通信，而主程序开着 WiFi 热点，中断会打断时序，
+  //   偶发失败是**固有现象**（换库也只是少失败一点，不是不失败）。
+  //   如果失败就清零，网页上的温湿度会时不时跳成 0，看着像坏了。
+  //   dhtTemp/dhtHumi 初值是 -1，网页见 -1 会显示「未接」——
+  //   所以开机后第一次读成功之前，页面显示「未接」是正常的。
+  static unsigned long lastDhtMs = 0;
+  if (now - lastDhtMs >= DHT_READ_MS) {
+    lastDhtMs = now;
+    int8_t t = 0, h = 0;
+    if (dht11Read(t, h)) {
+      dhtTemp = t;
+      dhtHumi = h;
     }
   }
 }
