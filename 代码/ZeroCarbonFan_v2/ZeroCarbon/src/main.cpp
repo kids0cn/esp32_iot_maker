@@ -13,12 +13,14 @@
  * ── 哪些是真的、哪些还是空的（重要，别当真） ──
  *   ✅ WiFi 热点        —— 真的
  *   ✅ 网页服务 + 接口  —— 真的，手机能开、按钮有反应
- *   ⬜ PM2.5 读数       —— **假的，恒为 0**。传感器还没接线，没东西可读
- *   ⬜ 风扇开关         —— **只是 RAM 里的一个变量**。没接继电器
- *   ⬜ 光照             —— 只读 GPIO35 的 AO（强度百分比 + 暗/亮判定）。
- *                          **只读输入，不输出电平**；DO 空着不接。
- *                          仍然**没有驱动任何输出引脚** —— 引脚没核实就输出
- *                          有烧板子的风险。
+ *   ✅ PM2.5 读数       —— **真的**（GP2Y1014AU + 转接板，见 pm25.h）
+ *   ✅ 光照             —— 真的（光敏模块，只读 AO，见 light.h）
+ *   ⬜ 风扇开关         —— **只是 RAM 里的一个变量**。没接继电器，
+ *                          所以「自动模式下 PM2.5 超标就开风扇」只是把变量翻个面，
+ *                          硬件上什么都不会发生。
+ *
+ *   ※ 两个传感器都只**读**引脚，没有驱动任何输出 —— 在接上继电器之前，
+ *     不存在「引脚没核实就输出、烧板子」的风险。
  *
  * ── 为什么 loop() 里不能有 delay() ────────────
  *   WebServer 库靠 server.handleClient() 一轮一轮地收发数据。
@@ -42,6 +44,7 @@
 #include <DNSServer.h>
 #include "index_html.h"
 #include "light.h"          // 光照模块：引脚/阈值/读取都在 light.h，本文件只做装配
+#include "pm25.h"           // PM2.5 模块（GP2Y1014AU + 转接板）
 
 // ================== WiFi 热点配置 ==================
 // 手机连的就是这两个。改名字改密码只改这里。
@@ -70,10 +73,13 @@ enum Mode { MODE_AUTO, MODE_MANUAL };
 Mode mode = MODE_AUTO;                  // 开机默认自动模式
 
 bool fanOn = false;                     // 风扇状态（只是变量，没接真实继电器）
-int pm25 = 0;                           // 恒为 0 —— 传感器还没接
+int pm25 = 0;                           // 最近一次 PM2.5 读数，由 loop() 每秒刷新一次
 
 const int PM25_THRESHOLD_ON = 75;       // 超过这个值开风扇
 const int PM25_THRESHOLD_OFF = 35;      // 低于这个值关风扇（和上面构成回差，防止频繁启停）
+// ⚠️ 上面的 50~75 回差，是为了防止数值在阈值附近抖动时继电器反复咔哒
+//    （又吵又伤触点）。这是照搬原版固件的设计。
+const unsigned long PM25_SAMPLE_MS = 1000;   // PM2.5 采样周期：1 秒一次
 
 // 光照模块已拆到 src/light.h（引脚、阈值、lightInit/lightRead 都在那）。
 // 本文件只负责：常量汇总 / setup 装配 / 路由 / 把各模块状态拼成 JSON。
@@ -164,6 +170,7 @@ void setup() {
   Serial.begin(115200);
 
   lightInit();   // 光照 AO：输入模式，不驱动电平（细节见 light.h）
+  pm25Init();    // PM2.5：LED 脚设为输出并熄灭、AO 脚设为输入（细节见 pm25.h）
 
   // 开热点。softAP 内部默认分配 192.168.4.1，不用额外配。
   WiFi.softAP(WIFI_SSID, WIFI_PASS);
@@ -199,6 +206,20 @@ void setup() {
     Serial.print(dark ? "暗" : "亮");
   }
   Serial.println();
+  Serial.print("  PM2.5：ILED=GPIO");
+  Serial.print(PM25_LED_PIN);
+  Serial.print("  AO=GPIO");
+  Serial.print(PM25_AN_PIN);
+  Serial.print("  首次读数=");
+  {
+    float vo = 0;
+    int v = pm25Read(&vo);    // setup 里读一次没关系 —— 此时还没开始服务网页请求
+    Serial.print(v);
+    Serial.print(" ug/m3   (VO=");
+    Serial.print(vo, 0);
+    Serial.print("mV)");
+  }
+  Serial.println();
   Serial.println();
 }
 
@@ -206,4 +227,24 @@ void setup() {
 void loop() {
   dnsServer.processNextRequest();  // 处理 DNS 查询，同样不能停
   server.handleClient();           // 必须频繁调用，中间不能塞 delay()
+
+  // ── PM2.5：每 1 秒采一次 ────────────────────────────────
+  // pm25Read() 会阻塞约 10ms（必须等够 LED 的 10ms 脉冲周期），所以：
+  //   · 只能在这里定时采 —— **绝不能放进 sendState()**，
+  //     那会让每次网页请求都多等 10ms，页面直接变卡
+  //   · 每秒阻塞 10ms ≈ 1%；handleClient() 一秒被调上千次，这点时间无感
+  //   · 采到的值存进全局 pm25，sendState() 直接用缓存值
+  static unsigned long lastPm25Ms = 0;
+  unsigned long now = millis();
+  if (now - lastPm25Ms >= PM25_SAMPLE_MS) {
+    lastPm25Ms = now;
+    pm25 = pm25Read();
+
+    // 自动模式下按 PM2.5 控制风扇（带 35~75 回差，见上面的阈值常量）
+    // ⚠️ 风扇目前只是 RAM 变量、没接继电器 —— 这里翻面了硬件也不会动。
+    if (mode == MODE_AUTO) {
+      if (pm25 > PM25_THRESHOLD_ON)       fanOn = true;
+      else if (pm25 < PM25_THRESHOLD_OFF) fanOn = false;
+    }
+  }
 }
