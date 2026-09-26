@@ -136,6 +136,12 @@ int readPM25(int& rawEquivOut, float& voltageMvOut, int& rawInstantOut, int& pin
   return (int)density;
 }
 
+// ================== 开机 LED 自检的结论（供下面的 selfCheck 用）==================
+// ⚠️ 必须声明在 selfCheck() **之前** —— C++ 里先用后声明会报
+//    "'g_ledDiffMv' was not declared in this scope"。
+int g_ledDiffMv  = -1;   // 两种电平下 AO 的差(mV)；-1 = 还没测过
+int g_ledOnLevel = -1;   // 建议的 LED_ON_LEVEL（HIGH/LOW）；-1 = 判不出来
+
 // ================== 自检判定 ==================
 // 每 10 秒判一次，直接给结论，不用自己盯数字
 void selfCheck(int minRaw, int maxRaw, int instMin, int instMax) {
@@ -197,10 +203,6 @@ void selfCheck(int minRaw, int maxRaw, int instMin, int instMax) {
 // ⚠️ LED 不需要脉冲才能亮 —— 它就是个普通红外 LED，给电就亮。
 //    脉冲（280/40/9680）只影响「读数准不准」和「LED 寿命」，不影响亮不亮。
 //    所以这里常亮 2 秒来测是完全有效的。
-
-// 开机自检的结论，留给后面的 selfCheck 用
-int g_ledDiffMv  = -1;   // 两种电平下 AO 的差(mV)；-1 = 还没测过
-int g_ledOnLevel = -1;   // 建议的 LED_ON_LEVEL（HIGH/LOW）；-1 = 判不出来
 
 // 在当前 ILED 电平下采样 n 次取平均
 // ⚠️ **必须用校准后的 mV**。早先这里写的是 analogRead()，而它在低压段恒返回 0，
