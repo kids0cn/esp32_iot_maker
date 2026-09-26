@@ -51,8 +51,8 @@ const int PM25_AN_PIN  = 32;   // 接转接板的 AO。ADC1_CH4
 // ================== LED 极性 ==================
 // 厂商两份例程都写「高电平点亮」，所以默认 HIGH。
 // 若串口一直显示 raw 恒定不动、点蚊香也没反应 → 改成 LOW 再烧一次。
-const int LED_ON_LEVEL  = HIGH;
-const int LED_OFF_LEVEL = LOW;
+const int LED_ON_LEVEL  = LOW;
+const int LED_OFF_LEVEL = HIGH;
 
 // ================== 采样时序（手册要求，别改） ==================
 // Sharp 手册「Recommended input condition for LED」：
@@ -159,31 +159,30 @@ void selfCheck(int minRaw, int maxRaw, int instMin, int instMax) {
     Serial.println("       确认代码里的 PM25_AN_PIN 和实际插的脚是同一个。");
     Serial.println("       ⚠️ 这时候 raw 显示的数值全是噪声，不是真实读数。");
   }
-  // ② 再排除没分压（危险情况）
+  // ② LED 压根没被驱动 —— 用开机自检的结论，别自己猜
+  else if (g_ledDiffMv >= 0 && g_ledDiffMv < 5) {
+    Serial.println("    ⚠️ 开机自检发现：切换 ILED 电平，AO 几乎不变（差 " + String(g_ledDiffMv) + " mV）");
+    Serial.println("       → **LED 没被驱动起来**，读数自然也不会随烟变化。");
+    Serial.println("       查 ILED 这条线：从 GPIO" + String(PM25_LED_PIN) + " 到转接板 ILED 脚，");
+    Serial.println("       换根杜邦线、换个面包板孔位；或手动把 ILED 碰 GND/3.3V 各 5 秒验证。");
+  }
+  // ③ 再排除没分压（危险情况）
   else if (maxRaw >= RAW_DANGER) {
     Serial.println("    ❌ 危险：raw 冲到 " + String(maxRaw) + "，说明 AO 没有分压！");
     Serial.println("       转接板上可能没有 10k/1k。**立刻断电**，别继续接 GPIO。");
   } else if (maxRaw > RAW_MAX_OK) {
     Serial.println("    ⚠️ raw 超过 450 —— 可能没分压，或 AO 接错了脚。先查线。");
   }
-  // ③ 恒 0：有线、但没信号
+  // ④ 读数太低
   else if (maxRaw <= RAW_MIN_OK) {
-    Serial.println("    读数是 0，且瞬时值也不动 —— 引脚上有真实电平，但没有信号。两种可能：");
-    Serial.println("      (a) 传感器没通电/坏了 → 量转接板 VCC↔GND 是不是 5V；");
-    Serial.println("      (b) 传感器正常，但干净空气下 AO 只有约 55mV，");
-    Serial.println("          **ESP32 的 ADC 在低压段分辨率极差、常直接读 0**");
-    Serial.println("          （转接板的 ÷11 是给 STM32 设计的，ESP32 上会丢低端）。");
-    Serial.println("          验证法：点根蚊香，让烟靠近传感器 —— 若 raw 能升起来，就是 (b)。");
-  }
-  // ④ 恒定但非 0：可能是真实但极低的静态值
-  else if (minRaw == maxRaw) {
-    Serial.println("    ⚠️ raw 恒定不变 —— 传感器可能在跑，但没看到光信号变化。");
-    Serial.println("       把 LED_ON_LEVEL 改成相反的电平再烧一次试试。");
+    Serial.println("    ❌ 读数是 0 左右 —— AO 上几乎没有电压。");
+    Serial.println("       查转接板 VCC↔GND 是不是真有 5V、GND 有没有共地。");
   }
   // ⑤ 正常
   else {
-    Serial.println("    ✅ 瞬时值平稳、raw 有变化 —— 传感器在工作。");
-    Serial.println("       下一步：点根蚊香 / 吹口气靠近进气口，看 raw 明不明显往上走。");
+    Serial.println("    ✅ 读数在合理范围，LED 自检也通过了 —— 传感器在工作。");
+    Serial.println("       （静止空气下读数本来就比较稳，不怎么会动 —— 属正常。）");
+    Serial.println("       下一步：点根蚊香 / 吹口气靠近进气口，看 AO 明不明显变大。");
   }
   Serial.println("  ──────────────────────────────────────");
   Serial.println();
@@ -199,11 +198,18 @@ void selfCheck(int minRaw, int maxRaw, int instMin, int instMax) {
 //    脉冲（280/40/9680）只影响「读数准不准」和「LED 寿命」，不影响亮不亮。
 //    所以这里常亮 2 秒来测是完全有效的。
 
+// 开机自检的结论，留给后面的 selfCheck 用
+int g_ledDiffMv  = -1;   // 两种电平下 AO 的差(mV)；-1 = 还没测过
+int g_ledOnLevel = -1;   // 建议的 LED_ON_LEVEL（HIGH/LOW）；-1 = 判不出来
+
 // 在当前 ILED 电平下采样 n 次取平均
-int sampleAvg(int n) {
+// ⚠️ **必须用校准后的 mV**。早先这里写的是 analogRead()，而它在低压段恒返回 0，
+//    于是「两种电平读数差 0」→ 误判成「LED 没在工作」。那是个**假阴性**，
+//    让人白白去查供电。改走 analogReadMilliVolts() 后才有分辨力。
+int sampleAvgMv(int n) {
   long sum = 0;
   for (int i = 0; i < n; i++) {
-    sum += analogRead(PM25_AN_PIN);
+    sum += analogReadMilliVolts(PM25_AN_PIN);
     delay(10);
   }
   return (int)(sum / n);
@@ -212,38 +218,33 @@ int sampleAvg(int n) {
 void ledBringUpTest() {
   const int N = 30;   // 每档采样次数（30 × 10ms ≈ 0.3 秒）
 
-  Serial.println("  ── ILED 极性自检（不用摄像头，看数字）──");
+  Serial.println("  ── ILED 极性自检（比较校准后的 mV，不用摄像头）──");
 
   digitalWrite(PM25_LED_PIN, HIGH);
-  Serial.print("      ILED = 高电平，采样 ");
-  Serial.print(N);
-  Serial.print(" 次… 平均 raw = ");
-  int avgHigh = sampleAvg(N);
-  Serial.println(avgHigh);
+  int avgHigh = sampleAvgMv(N);
+  Serial.println("      ILED = 高电平，采样 " + String(N) + " 次… 平均 AO = " + String(avgHigh) + " mV");
 
   digitalWrite(PM25_LED_PIN, LOW);
-  Serial.print("      ILED = 低电平，采样 ");
-  Serial.print(N);
-  Serial.print(" 次… 平均 raw = ");
-  int avgLow = sampleAvg(N);
-  Serial.println(avgLow);
+  int avgLow = sampleAvgMv(N);
+  Serial.println("      ILED = 低电平，采样 " + String(N) + " 次… 平均 AO = " + String(avgLow) + " mV");
 
   int diff = avgHigh - avgLow;
   if (diff < 0) diff = -diff;
+  g_ledDiffMv = diff;
 
   Serial.println();
   if (diff < 5) {
-    Serial.println("      ❌ 两种电平下读数几乎一样（差 " + String(diff) + "）");
-    Serial.println("         → **LED 没有在工作**，或者传感器没有输出。");
-    Serial.println("           这不是极性问题 —— 改 LED_ON_LEVEL 不会有任何作用。");
-    Serial.println("           要查的是：转接板 VCC 是不是真 5V、GND 有没有共地、ILED 线通不通。");
-    Serial.println("           再不然手动试：把 ILED 线拔下来，分别碰 GND / 3.3V 各 5 秒看 raw 动不动。");
+    g_ledOnLevel = -1;
+    Serial.println("      ❌ 两种电平下 AO 几乎一样（差 " + String(diff) + " mV）");
+    Serial.println("         → **LED 没被驱动起来**，或 ILED 这条线没通。这不是极性问题。");
+    Serial.println("         手动验证：把 ILED 线从 GPIO14 拔下来，分别碰 GND / 3.3V 各 5 秒，");
+    Serial.println("         盯着下面的 AO 看 —— 哪个电平让 AO 明显变大，那个就是点亮电平。");
   } else if (avgHigh > avgLow) {
-    Serial.println("      ✅ LED 在【高电平】时读数更高（差 " + String(diff) + "）");
-    Serial.println("         → 把 LED_ON_LEVEL 设成 HIGH");
+    g_ledOnLevel = HIGH;
+    Serial.println("      ✅ 高电平时 AO 更高（差 " + String(diff) + " mV）→ LED_ON_LEVEL = HIGH");
   } else {
-    Serial.println("      ✅ LED 在【低电平】时读数更高（差 " + String(diff) + "）");
-    Serial.println("         → 把 LED_ON_LEVEL 设成 LOW");
+    g_ledOnLevel = LOW;
+    Serial.println("      ✅ 低电平时 AO 更高（差 " + String(diff) + " mV）→ LED_ON_LEVEL = LOW");
   }
   Serial.println("  ──────────────────────────────────────────────");
   Serial.println();
@@ -260,7 +261,7 @@ void setup() {
 
   Serial.println();
   Serial.println("=== GP2Y1014AU 转接板 · PM2.5 传感器自检 ===");
-  Serial.println("  接线：VCC→5V（不是3.3V）  GND→GND  AO→GPIO34  ILED→GPIO14");
+  Serial.println("  接线：VCC→5V（不是3.3V）  GND→GND  AO→GPIO32  ILED→GPIO14");
   Serial.print("  ILED = GPIO");
   Serial.print(PM25_LED_PIN);
   Serial.print("（");
