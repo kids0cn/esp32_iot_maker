@@ -26,7 +26,7 @@
 ```
 代码/ZeroCarbonFan/ZeroCarbonFan.ino           # 原版 —— 提供方提供，历史存档，别改
 代码/ZeroCarbonFan_v2/ZeroCarbon/              # ★ PlatformIO 工程（src/main.cpp 网页热点、
-                                               #   src/sensor_test.cpp 传感器测试）
+                                               #   src/sensorTest_pm2.5.cpp 传感器测试）
 代码/ZeroCarbonFan_v2/ZeroCarbon/include/index_html.h   # 网页唯一源，预览脚本也从这抽
 文档/项目需求.md                                # 需求 + 实现覆盖情况（第 6 节，原版对照）
 文档/v2改动说明.md                              # 历史：v2 曾改了什么（对应固件已删）
