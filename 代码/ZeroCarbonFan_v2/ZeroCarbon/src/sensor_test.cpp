@@ -11,7 +11,7 @@
  *   VCC    ────→   VIN / 5V        ⚠️ 5V，不是 3.3V
  *   GND    ────→   GND             必须共地
  *   AO     ────→   GPIO34          模拟输入（只读脚，正合适）
- *   ILED   ────→   GPIO13          LED 驱动
+ *   ILED   ────→   GPIO14          LED 驱动
  *
  *   转接板已经把这些做在板上，**不需要再买电阻**：
  *     · 150Ω + 220µF  供电 RC（手册要求）
@@ -42,8 +42,11 @@
 #include <Arduino.h>
 
 // ================== 引脚 ==================
-const int PM25_LED_PIN = 13;   // 接转接板的 ILED
-const int PM25_AN_PIN  = 34;   // 接转接板的 AO。GPIO34 是只读输入脚
+// AO 必须用 **ADC1** 的脚（GPIO32/33/34/35/36/39）——
+// GPIO 0/2/4/12/13/14/15/25/26/27 是 ADC2，**WiFi 一开 analogRead 就失效**。
+// 本程序不开 WiFi，但这份参数以后要并进开热点的主程序，所以从一开始就守这条。
+const int PM25_LED_PIN = 14;   // 接转接板的 ILED（普通数字输出，哪个脚都行）
+const int PM25_AN_PIN  = 34;   // 接转接板的 AO。ADC1_CH6，且 GPIO34 是只读输入脚
 
 // ================== LED 极性 ==================
 // 厂商两份例程都写「高电平点亮」，所以默认 HIGH。
@@ -160,7 +163,7 @@ void setup() {
 
   Serial.println();
   Serial.println("=== GP2Y1014AU 转接板 · PM2.5 传感器自检 ===");
-  Serial.println("  接线：VCC→5V（不是3.3V）  GND→GND  AO→GPIO34  ILED→GPIO13");
+  Serial.println("  接线：VCC→5V（不是3.3V）  GND→GND  AO→GPIO34  ILED→GPIO14");
   Serial.print("  ILED = GPIO");
   Serial.print(PM25_LED_PIN);
   Serial.print("（");
