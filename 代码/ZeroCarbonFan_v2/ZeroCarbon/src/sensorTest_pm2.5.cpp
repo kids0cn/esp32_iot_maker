@@ -176,21 +176,62 @@ void selfCheck(int minRaw, int maxRaw, int instMin, int instMax) {
   Serial.println();
 }
 
-// ================== 开机自检：先确定 LED 到底亮不亮、哪种极性才亮 ==================
-// 红外 LED 肉眼看不见，但**手机摄像头能拍到**（有些手机后置有 IR 滤镜，用前置）。
-// 这个函数让 ILED 交替常亮各 2 秒 —— 哪一段能看到红外微光，那段就是正确的点亮电平。
-// 只在开机跑一次，跑完再进正常采样。
+// ================== 开机自检：自动判定 LED 极性 ==================
+// 红外 LED 肉眼看不见，用手机摄像头拍得到，但更省事的办法是**直接比数字**：
+//   在 ILED=高 和 ILED=低 两种状态下各采样取平均，
+//   哪种状态下读数明显更高，哪种就是「点亮」。
+// 这样不用摄像头、不用改代码重烧，串口直接告诉你该把 LED_ON_LEVEL 设成什么。
+//
+// ⚠️ LED 不需要脉冲才能亮 —— 它就是个普通红外 LED，给电就亮。
+//    脉冲（280/40/9680）只影响「读数准不准」和「LED 寿命」，不影响亮不亮。
+//    所以这里常亮 2 秒来测是完全有效的。
+
+// 在当前 ILED 电平下采样 n 次取平均
+int sampleAvg(int n) {
+  long sum = 0;
+  for (int i = 0; i < n; i++) {
+    sum += analogRead(PM25_AN_PIN);
+    delay(10);
+  }
+  return (int)(sum / n);
+}
+
 void ledBringUpTest() {
-  Serial.println("  ── ILED 接线自检（用手机摄像头对着传感器内部看）──");
-  Serial.println("     红外看不见，必须用手机摄像头！有些机子后置有 IR 滤镜，用前置。");
-  Serial.println("     现在：ILED 输出【高电平】保持 2 秒…");
+  const int N = 30;   // 每档采样次数（30 × 10ms ≈ 0.3 秒）
+
+  Serial.println("  ── ILED 极性自检（不用摄像头，看数字）──");
+
   digitalWrite(PM25_LED_PIN, HIGH);
-  delay(2000);
-  Serial.println("     现在：ILED 输出【低电平】保持 2 秒…");
+  Serial.print("      ILED = 高电平，采样 ");
+  Serial.print(N);
+  Serial.print(" 次… 平均 raw = ");
+  int avgHigh = sampleAvg(N);
+  Serial.println(avgHigh);
+
   digitalWrite(PM25_LED_PIN, LOW);
-  delay(2000);
-  Serial.println("     ↑ 哪一段看到了红外微光，把 LED_ON_LEVEL 设成那个电平。");
-  Serial.println("       两段都看不到 → 不是极性问题，是供电/共地/接线（见下方提示）。");
+  Serial.print("      ILED = 低电平，采样 ");
+  Serial.print(N);
+  Serial.print(" 次… 平均 raw = ");
+  int avgLow = sampleAvg(N);
+  Serial.println(avgLow);
+
+  int diff = avgHigh - avgLow;
+  if (diff < 0) diff = -diff;
+
+  Serial.println();
+  if (diff < 5) {
+    Serial.println("      ❌ 两种电平下读数几乎一样（差 " + String(diff) + "）");
+    Serial.println("         → **LED 没有在工作**，或者传感器没有输出。");
+    Serial.println("           这不是极性问题 —— 改 LED_ON_LEVEL 不会有任何作用。");
+    Serial.println("           要查的是：转接板 VCC 是不是真 5V、GND 有没有共地、ILED 线通不通。");
+    Serial.println("           再不然手动试：把 ILED 线拔下来，分别碰 GND / 3.3V 各 5 秒看 raw 动不动。");
+  } else if (avgHigh > avgLow) {
+    Serial.println("      ✅ LED 在【高电平】时读数更高（差 " + String(diff) + "）");
+    Serial.println("         → 把 LED_ON_LEVEL 设成 HIGH");
+  } else {
+    Serial.println("      ✅ LED 在【低电平】时读数更高（差 " + String(diff) + "）");
+    Serial.println("         → 把 LED_ON_LEVEL 设成 LOW");
+  }
   Serial.println("  ──────────────────────────────────────────────");
   Serial.println();
 }
