@@ -102,19 +102,32 @@ int filterAvg(int sample) {
 
 // ================== 读一次 ==================
 // 会阻塞约 10ms（必须等够脉冲周期）。每秒读一次完全无所谓。
-int readPM25(int& rawOut, float& voltageMvOut, int& rawInstantOut) {
-  digitalWrite(PM25_LED_PIN, LED_ON_LEVEL);   // 点亮传感器内部 LED
-  delayMicroseconds(SAMPLING_US);             // 等 280µs，让光路稳定
-  int raw = analogRead(PM25_AN_PIN);          // 在脉冲开始后 280µs 处采样
-  rawInstantOut = raw;                        // 未经滤波的瞬时值，用来分辨「真 0V」还是「悬空乱跳」
-  delayMicroseconds(PULSE_TAIL_US);           // 再亮 40µs，凑满 320µs 脉宽
-  digitalWrite(PM25_LED_PIN, LED_OFF_LEVEL);  // 熄灭 LED
-  delayMicroseconds(SLEEP_US);                // 补足 10ms 周期
+//
+// ★ 电压换算用 analogReadMilliVolts()，**不用** analogRead()×3.3/4095：
+//   analogRead() 是未校准的裸 ADC 值，ESP32 的 ADC 低压段（<0.1V）分辨率极差，
+//   经常直接返回 0。而干净空气下 AO 只有约 55mV，正好落在那个死区里。
+//   analogReadMilliVolts() 会读芯片出厂烧在 efuse 里的校准系数，把非线性补偿掉，
+//   低压段能正常读数 —— 这是 ESP32 专用的读法。
+//
+//   两个都读出来是为了**诊断**：
+//     rawInstant（未校准）= 0 但 pinMv（校准后）= 55  → 实锤是死区问题，传感器是好的
+int readPM25(int& rawEquivOut, float& voltageMvOut, int& rawInstantOut, int& pinMvOut) {
+  digitalWrite(PM25_LED_PIN, LED_ON_LEVEL);          // 点亮传感器内部 LED
+  delayMicroseconds(SAMPLING_US);                    // 等 280µs，让光路稳定
+  int rawInstant = analogRead(PM25_AN_PIN);          // 未校准，只留着做对比诊断
+  int pinMv      = (int)analogReadMilliVolts(PM25_AN_PIN);  // 校准后的引脚电压(mV)，用它换算
+  delayMicroseconds(PULSE_TAIL_US);                  // 再亮 40µs，凑满 320µs 脉宽
+  digitalWrite(PM25_LED_PIN, LED_OFF_LEVEL);         // 熄灭 LED
+  delayMicroseconds(SLEEP_US);                       // 补足 10ms 周期
 
-  rawOut = filterAvg(raw);
+  rawInstantOut = rawInstant;
+  pinMvOut      = filterAvg(pinMv);                  // 对毫伏做 10 次滑动平均
 
-  // 还原真实电压：ADC 读到的只是 VO 的 1/11，乘回来
-  voltageMvOut = rawOut * (ADC_VREF_MV / ADC_MAX) * DIVIDER_RESTORE;
+  // 显示用的「等效 raw」—— 由校准后的毫伏折算，方便和以前的日志对比
+  rawEquivOut = (int)(pinMvOut / (ADC_VREF_MV / ADC_MAX));
+
+  // 还原分压：引脚上是 VO ÷ 11，乘 11 得到传感器真实输出 VO(mV)
+  voltageMvOut = pinMvOut * DIVIDER_RESTORE;
 
   float density = 0;
   if (voltageMvOut > NO_DUST_MV) {
@@ -266,25 +279,28 @@ void setup() {
 // 这里用 delay(1000) 是安全的 —— 本程序没有任何网络要服务，
 // delay() 只在 WebServer 那种要频繁 handleClient() 的场景才是坑。
 void loop() {
-  int raw = 0;
+  int rawEquiv = 0;
   float voltageMv = 0;
   int rawInstant = 0;
-  int pm25 = readPM25(raw, voltageMv, rawInstant);
+  int pinMv = 0;
+  int pm25 = readPM25(rawEquiv, voltageMv, rawInstant, pinMv);
 
   // 记录运行区间，用来判断「读数到底会不会动」
-  static int minRaw = 4095, maxRaw = 0;
-  if (raw < minRaw) minRaw = raw;
-  if (raw > maxRaw) maxRaw = raw;
+  static int minRaw = 99999, maxRaw = -1;
+  if (rawEquiv < minRaw) minRaw = rawEquiv;
+  if (rawEquiv > maxRaw) maxRaw = rawEquiv;
 
   // 瞬时值的摆幅 —— 用来分辨「引脚悬空」和「真实的低电平」
-  static int instMin = 4095, instMax = 0;
+  static int instMin = 99999, instMax = -1;
   if (rawInstant < instMin) instMin = rawInstant;
   if (rawInstant > instMax) instMax = rawInstant;
 
-  Serial.print("raw=");
-  Serial.print(raw);
+  Serial.print("AO=");
+  Serial.print(pinMv);
+  Serial.print("mV  等效raw=");
+  Serial.print(rawEquiv);
   Serial.print("  瞬时=");
-  Serial.print(rawInstant);   // 未滤波：恒定 0 = 引脚真是 0V；乱跳 = 引脚悬空
+  Serial.print(rawInstant);
   Serial.print("  Vo=");
   Serial.print(voltageMv, 0);
   Serial.print("mV  PM2.5=");
@@ -301,8 +317,8 @@ void loop() {
     selfCheck(minRaw, maxRaw, instMin, instMax);
     // 瞬时摆幅按「每 10 秒一个窗口」统计，下一轮重新算 ——
     // 否则开机时抖过一次，后面每次都报「悬空」，就失去意义了。
-    instMin = 4095;
-    instMax = 0;
+    instMin = 99999;
+    instMax = -1;
   }
 
   delay(1000);
