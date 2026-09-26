@@ -5,44 +5,44 @@
 #include "oled.h"
 #include "stdio.h"
 
-// === ²ÎÊıĞ£×¼ ===
-// ÕÚ×¡´«¸ĞÆ÷Ê±µÄµçÑ¹(mV)£¬Í¨³£ÔÚ500-900Ö®¼ä¡£Èç¹û¶Á³ö¸ºÊı£¬µ÷´ó´ËÖµ¡£
+// === å‚æ•°æ ¡å‡† ===
+// é®ä½ä¼ æ„Ÿå™¨æ—¶çš„ç”µå‹(mV)ï¼Œé€šå¸¸åœ¨500-900ä¹‹é—´ã€‚å¦‚æœè¯»å‡ºè´Ÿæ•°ï¼Œè°ƒå¤§æ­¤å€¼ã€‚
 #define NO_DUST_VOLTAGE     400     
-// ÁéÃô¶È×ª»»ÏµÊı£¬Í¨³£ÔÚ 0.17 ×óÓÒ
+// çµæ•åº¦è½¬æ¢ç³»æ•°ï¼Œé€šå¸¸åœ¨ 0.17 å·¦å³
 #define COV_RATIO           0.20f    
 
-// === È«¾Ö±äÁ¿ ===
-u16 adc_raw = 0;          // Ô­Ê¼ADCÖµ (0-4095)
-u16 voltage_mv = 0;       // »»ËãºóµÄµçÑ¹ (mV)
-float dust_density = 0;   // PM2.5Å¨¶È (ug/m3)
-char display_buf[32];     // ×Ö·û´®»º´æ
+// === å…¨å±€å˜é‡ ===
+u16 adc_raw = 0;          // åŸå§‹ADCå€¼ (0-4095)
+u16 voltage_mv = 0;       // æ¢ç®—åçš„ç”µå‹ (mV)
+float dust_density = 0;   // PM2.5æµ“åº¦ (ug/m3)
+char display_buf[32];     // å­—ç¬¦ä¸²ç¼“å­˜
 
-// ³õÊ¼»¯´«¸ĞÆ÷¿ØÖÆÒı½Å PA2
+// åˆå§‹åŒ–ä¼ æ„Ÿå™¨æ§åˆ¶å¼•è„š PA2
 void Sensor_LED_Init(void)
 {
     GPIO_InitTypeDef GPIO_InitStructure;
     RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOA, ENABLE);
     
     GPIO_InitStructure.GPIO_Pin = GPIO_Pin_2; 
-    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_Out_PP; // ÍÆÍìÊä³ö
+    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_Out_PP; // æ¨æŒ½è¾“å‡º
     GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
     GPIO_Init(GPIOA, &GPIO_InitStructure);
     
-    GPIO_ResetBits(GPIOA, GPIO_Pin_2); // Ä¬ÈÏµÍµçÆ½(Ãğ)
+    GPIO_ResetBits(GPIOA, GPIO_Pin_2); // é»˜è®¤ä½ç”µå¹³(ç­)
 }
 
-// ¾ùÖµÂË²¨Ëã·¨£¬ÎÈ¶¨ÊıÖµ
-// === ĞŞ¸´ºóµÄÂË²¨Ëã·¨ ===
+// å‡å€¼æ»¤æ³¢ç®—æ³•ï¼Œç¨³å®šæ•°å€¼
+// === ä¿®å¤åçš„æ»¤æ³¢ç®—æ³• ===
 u16 Filter_Adc(u16 new_val)
 {
-    // ¶¨Òå¾²Ì¬±äÁ¿£¬È·±£Êı¾İ¶ÏµçÇ°Ò»Ö±±£Áô
-    static u16 buf[10];      // ´æ·Å×î½ü10´ÎµÄÊı¾İ
-    static u8 i = 0;         // Êı×éÏÂ±ê
-    static u32 sum = 0;      // ×ÜºÍ
-    static u8 is_first = 1;  // µÚÒ»´ÎÔËĞĞ±ê¼Ç
+    // å®šä¹‰é™æ€å˜é‡ï¼Œç¡®ä¿æ•°æ®æ–­ç”µå‰ä¸€ç›´ä¿ç•™
+    static u16 buf[10];      // å­˜æ”¾æœ€è¿‘10æ¬¡çš„æ•°æ®
+    static u8 i = 0;         // æ•°ç»„ä¸‹æ ‡
+    static u32 sum = 0;      // æ€»å’Œ
+    static u8 is_first = 1;  // ç¬¬ä¸€æ¬¡è¿è¡Œæ ‡è®°
 
-    //Èç¹ûÊÇµÚÒ»´Î½øÈë£¬°Ñ10¸öÎ»ÖÃÈ«²¿ÌîÂúµ±Ç°Öµ
-    //ÕâÑù¿ÉÒÔ±ÜÃâ¸ÕÆô¶¯Ê±Êı¾İ´Ó0»ºÂıÅÀÉı
+    //å¦‚æœæ˜¯ç¬¬ä¸€æ¬¡è¿›å…¥ï¼ŒæŠŠ10ä¸ªä½ç½®å…¨éƒ¨å¡«æ»¡å½“å‰å€¼
+    //è¿™æ ·å¯ä»¥é¿å…åˆšå¯åŠ¨æ—¶æ•°æ®ä»0ç¼“æ…¢çˆ¬å‡
     if(is_first)
     {
         u8 k;
@@ -52,46 +52,46 @@ u16 Filter_Adc(u16 new_val)
         return new_val;
     }
 
-    // »¬¶¯Æ½¾ùºËĞÄÂß¼­
-    sum -= buf[i];          // 1. ¼õÈ¥×îÀÏµÄÊı¾İ
-    buf[i] = new_val;       // 2. ´æÈë×îĞÂµÄÊı¾İ
-    sum += buf[i];          // 3. ¼ÓÉÏ×îĞÂµÄÊı¾İ
+    // æ»‘åŠ¨å¹³å‡æ ¸å¿ƒé€»è¾‘
+    sum -= buf[i];          // 1. å‡å»æœ€è€çš„æ•°æ®
+    buf[i] = new_val;       // 2. å­˜å…¥æœ€æ–°çš„æ•°æ®
+    sum += buf[i];          // 3. åŠ ä¸Šæœ€æ–°çš„æ•°æ®
     
     i++;
-    if(i >= 10) i = 0;      // ÏÂ±êÑ­»·
+    if(i >= 10) i = 0;      // ä¸‹æ ‡å¾ªç¯
 
-    return (u16)(sum / 10); // ·µ»ØÆ½¾ùÖµ
+    return (u16)(sum / 10); // è¿”å›å¹³å‡å€¼
 }
 
-// ¶ÁÈ¡´«¸ĞÆ÷ºËĞÄÂß¼­
+// è¯»å–ä¼ æ„Ÿå™¨æ ¸å¿ƒé€»è¾‘
 void Read_GP2Y10(void)
 {
     u16 filter_out;
     
-    // 1. ¿ªÆôÄÚ²¿LED (¸ßµçÆ½ÓĞĞ§)
+    // 1. å¼€å¯å†…éƒ¨LED (é«˜ç”µå¹³æœ‰æ•ˆ)
     GPIO_SetBits(GPIOA, GPIO_Pin_2);
-    // 2. ²ÉÑùÇ°µÄµÈ´ı (ÑÏ¸ñ×ñÑ­datasheet: 0.28ms)
+    // 2. é‡‡æ ·å‰çš„ç­‰å¾… (ä¸¥æ ¼éµå¾ªdatasheet: 0.28ms)
     delay_us(280);
     
-    // 3. Á¢¼´²É¼¯µçÑ¹
+    // 3. ç«‹å³é‡‡é›†ç”µå‹
     adc_raw = Get_Adc(ADC_Channel_0);
     
-    // 4. ²¹×ãÂö¿í²¢¹Ø±ÕLED (×ÜÂö¿í0.32ms)
+    // 4. è¡¥è¶³è„‰å®½å¹¶å…³é—­LED (æ€»è„‰å®½0.32ms)
     delay_us(40);
 	
     GPIO_ResetBits(GPIOA, GPIO_Pin_2);
-    // 5. ´«¸ĞÆ÷»Ö¸´Ê±¼ä
+    // 5. ä¼ æ„Ÿå™¨æ¢å¤æ—¶é—´
     delay_us(9680);
     
-    // 6. ÂË²¨´¦Àí
+    // 6. æ»¤æ³¢å¤„ç†
     filter_out = Filter_Adc(adc_raw);
     
-    // 7. µçÑ¹»»Ëã (3300mV²Î¿¼µçÑ¹, 12Î»ADC)
+    // 7. ç”µå‹æ¢ç®— (3300mVå‚è€ƒç”µå‹, 12ä½ADC)
 		//*********************************************************//
-		//*****×ª½Ó°åÊÇ1K¸ú10KµÄµç×è·ÖÑ¹²É¼¯£¬ËùÒÔÏÂÃæÒª³Ë11*******//
+		//*****è½¬æ¥æ¿æ˜¯1Kè·Ÿ10Kçš„ç”µé˜»åˆ†å‹é‡‡é›†ï¼Œæ‰€ä»¥ä¸‹é¢è¦ä¹˜11*******//
 		//*********************************************************//
 		voltage_mv = (u16)( ( (unsigned long)filter_out * 3300 ) / 4096 )* 11;    
-    // 8. Å¨¶È¼ÆËã
+    // 8. æµ“åº¦è®¡ç®—
     if(voltage_mv > NO_DUST_VOLTAGE)
     {
         dust_density = (float)(voltage_mv - NO_DUST_VOLTAGE) * COV_RATIO;
@@ -104,18 +104,18 @@ void Read_GP2Y10(void)
 
 int main(void)
 {	 
-    // ÏµÍ³³õÊ¼»¯
+    // ç³»ç»Ÿåˆå§‹åŒ–
     delay_init();	    	 
     NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2);
     uart_init(9600);	 	 
     
-    // Ä£¿é³õÊ¼»¯
-    Adc_Init();           // PA0 ³õÊ¼»¯
-    Sensor_LED_Init();    // PA2 ³õÊ¼»¯
-    OLED_Init();          // OLED ³õÊ¼»¯
+    // æ¨¡å—åˆå§‹åŒ–
+    Adc_Init();           // PA0 åˆå§‹åŒ–
+    Sensor_LED_Init();    // PA2 åˆå§‹åŒ–
+    OLED_Init();          // OLED åˆå§‹åŒ–
     OLED_Clear(); 
     
-    // ¾²Ì¬½çÃæÏÔÊ¾
+    // é™æ€ç•Œé¢æ˜¾ç¤º
     OLED_ShowString(0, 0, "GP2Y10 Monitor", 16);
     OLED_ShowString(0, 2, "Raw:      ", 16);
     OLED_ShowString(0, 4, "Vol:      mV", 16);
@@ -125,27 +125,27 @@ int main(void)
 
     while(1)
     {
-        // ¶ÁÈ¡Êı¾İ
+        // è¯»å–æ•°æ®
         Read_GP2Y10();
         
-        // --- OLED ÏÔÊ¾Ë¢ĞÂ ---
+        // --- OLED æ˜¾ç¤ºåˆ·æ–° ---
         
-        // ÏÔÊ¾Ô­Ê¼Öµ
+        // æ˜¾ç¤ºåŸå§‹å€¼
         sprintf(display_buf, "%4d", adc_raw);
         OLED_ShowString(40, 2, display_buf, 16);
         
-        // ÏÔÊ¾µçÑ¹
+        // æ˜¾ç¤ºç”µå‹
         sprintf(display_buf, "%4d", voltage_mv);
         OLED_ShowString(40, 4, display_buf, 16);
         
-        // ÏÔÊ¾Å¨¶È (±£Áô1Î»Ğ¡Êı)
+        // æ˜¾ç¤ºæµ“åº¦ (ä¿ç•™1ä½å°æ•°)
         sprintf(display_buf, "%4.1f", dust_density);
         OLED_ShowString(40, 6, display_buf, 16);
         
-        // --- ´®¿Ú´òÓ¡ ---
+        // --- ä¸²å£æ‰“å° ---
         printf("Raw:%d, Vol:%d mV, PM:%.1f\r\n", adc_raw, voltage_mv, dust_density);
         
-        // ÑÓÊ±
+        // å»¶æ—¶
         delay_ms(200); 
     }
 }
