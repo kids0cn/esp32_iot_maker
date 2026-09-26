@@ -51,8 +51,8 @@ const int PM25_AN_PIN  = 32;   // 接转接板的 AO。ADC1_CH4
 // ================== LED 极性 ==================
 // 厂商两份例程都写「高电平点亮」，所以默认 HIGH。
 // 若串口一直显示 raw 恒定不动、点蚊香也没反应 → 改成 LOW 再烧一次。
-const int LED_ON_LEVEL  = LOW;
-const int LED_OFF_LEVEL = HIGH;
+const int LED_ON_LEVEL  = HIGH;
+const int LED_OFF_LEVEL = LOW;
 
 // ================== 采样时序（手册要求，别改） ==================
 // Sharp 手册「Recommended input condition for LED」：
