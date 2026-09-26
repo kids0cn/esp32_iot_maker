@@ -69,8 +69,22 @@ const int SLEEP_US      = 9680;  // 补足 10ms（280 + 40 + 9680 = 10000µs）
 const float ADC_MAX         = 4095.0;  // ESP32 analogRead 默认 12 位
 const float ADC_VREF_MV     = 3300.0;  // ESP32 ADC 参考电压 3.3V
 const float DIVIDER_RESTORE = 11.0;    // ★ 转接板 10k/1k 分压 → 乘 11 还原（不是 2）
-const float NO_DUST_MV      = 400.0;   // 无尘时电压 (mV)，每台有差异，可自行校准
-const float COV_RATIO       = 0.20f;   // 浓度系数：µg/m³ per mV
+
+// ★★ 零点校准值 —— **这一项必须按你这台、你这个环境实测** ★★
+// 厂商例程用的是 400（那是它的环境），你这台实测干净空气下 AO=142mV，
+// 折算回传感器输出 VO = 142 × 11 = 1562mV，所以这里填 1562。
+//
+// 校准方法（想更准就再做一次）：
+//   1. 拿传感器到**通风处 / 户外**（真·干净空气），读串口的 Vo=
+//   2. 把那个数填到下面
+//   3. 重烧 → 干净空气下 PM2.5 应该接近 0
+//
+// 原理：手册说每枚传感器无尘时的输出电压有个体差异，必须逐台校准
+//（例程使用说明.pdf 也明确写了「需手动修正 NO_DUST_VOLTAGE 常量」）。
+const float NO_DUST_MV      = 1562.0;  // ★ 实测：干净空气下 VO = 142mV × 11
+const float COV_RATIO       = 0.20f;   // 浓度系数（µg/m³ per mV）。来自手册灵敏度
+                                       // K=0.5V/100µg/m³ → 5mV per µg/m³ → ×0.20。
+                                       // 这是标准值，**不用改**。
 
 // 自检用的范围判据
 const int RAW_MIN_OK = 5;      // raw 低于它 = 传感器没输出
@@ -165,14 +179,13 @@ void selfCheck(int minRaw, int maxRaw, int instMin, int instMax) {
     Serial.println("       确认代码里的 PM25_AN_PIN 和实际插的脚是同一个。");
     Serial.println("       ⚠️ 这时候 raw 显示的数值全是噪声，不是真实读数。");
   }
-  // ② LED 压根没被驱动 —— 用开机自检的结论，别自己猜
-  else if (g_ledDiffMv >= 0 && g_ledDiffMv < 5) {
-    Serial.println("    ⚠️ 开机自检发现：切换 ILED 电平，AO 几乎不变（差 " + String(g_ledDiffMv) + " mV）");
-    Serial.println("       → **LED 没被驱动起来**，读数自然也不会随烟变化。");
-    Serial.println("       查 ILED 这条线：从 GPIO" + String(PM25_LED_PIN) + " 到转接板 ILED 脚，");
-    Serial.println("       换根杜邦线、换个面包板孔位；或手动把 ILED 碰 GND/3.3V 各 5 秒验证。");
-  }
-  // ③ 再排除没分压（危险情况）
+  // ⚠️ 这里原本有一条「切换 ILED 电平 AO 不变 → LED 没被驱动」的判定，已删除。
+  //    理由：它是在**静止空气**下比较两档读数的 —— 环境没变，不管 LED 开不开，
+  //    读数本来就一样，**必然误报**。白白把人引去查接线。
+  //    LED 到底好不好，用「点烟/塞头发看读数会不会变」来判断才靠谱：
+  //    读数能随烟变化 → LED 一定在工作（LED 不亮的话，烟不可能影响读数）。
+
+  // ② 再排除没分压（危险情况）
   else if (maxRaw >= RAW_DANGER) {
     Serial.println("    ❌ 危险：raw 冲到 " + String(maxRaw) + "，说明 AO 没有分压！");
     Serial.println("       转接板上可能没有 10k/1k。**立刻断电**，别继续接 GPIO。");
@@ -186,9 +199,10 @@ void selfCheck(int minRaw, int maxRaw, int instMin, int instMax) {
   }
   // ⑤ 正常
   else {
-    Serial.println("    ✅ 读数在合理范围，LED 自检也通过了 —— 传感器在工作。");
-    Serial.println("       （静止空气下读数本来就比较稳，不怎么会动 —— 属正常。）");
-    Serial.println("       下一步：点根蚊香 / 吹口气靠近进气口，看 AO 明不明显变大。");
+    Serial.println("    ✅ 读数正常 —— 传感器在工作。");
+    Serial.println("       （静止空气下读数本来就稳，不怎么会动 —— 属正常。）");
+    Serial.println("       验证响应：点根蚊香 / 塞根头发进进气口，看 AO 会不会变。");
+    Serial.println("       会变 → LED 和光路都是好的；完全不变 → 才需要查 ILED 接线。");
   }
   Serial.println("  ──────────────────────────────────────");
   Serial.println();
