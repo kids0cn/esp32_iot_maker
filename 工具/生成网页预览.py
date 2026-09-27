@@ -37,26 +37,76 @@ MOCK = """
    它把 fetch 拦下来，用内存里的假状态模拟 ESP32 的响应，
    好让这个页面在离线（没接硬件）时也能点着玩。 */
 (function () {
-  var mock = { pm25: 42, fan: true, mode: 'auto', on: 75, off: 50, light: 'dark', lightPct: 30 };
+  // ⚠️ 这里的字段名必须和固件 sendState() 发出来的一字不差，
+  //    否则页面读不到 → 界面上会出现一堆 undefined。
+  //    （2026-09-27 修过一回：原来还是老字段 fan/on/off，
+  //      固件早改成了 devFan/setPm25On/…，预览页阈值全是 undefined。）
+  var mock = {
+    pm25: 42, mode: 'auto',
+    light: 'dark', lightPct: 30,
+    temp: 26, humi: 58,
+    devFan: '1', devLight: '0', devDehum: '0', devAc: '0',
+    setLight: 40, setPm25On: 75, setPm25Off: 50, setHumi: 65, setTemp: 28,
+    voiceSynced: '1', voiceCmd: '', voiceAgo: -1
+  };
   var mockTick = 0;   // 用来让光照每 6 次轮询翻转一次，离线也能看出卡片会变
+  var VOICE_WORDS = ['开风扇', '开灯', '关灯', '关闭风扇'];   // 假装识别到的指令
+  var voiceTick = 0, voiceIdx = 0;
+  var DEV_KEY = ['devFan', 'devLight', 'devDehum', 'devAc'];   // /dev?ch=1~4 对应哪一路
+  var SET_KEY = { light: 'setLight', pm25on: 'setPm25On', pm25off: 'setPm25Off',
+                  humi: 'setHumi', temp: 'setTemp' };
   window.__mock = mock;
+  // 解析 ?a=1&b=2 形式的查询串
+  function queryOf(path, mark) {
+    var q = {};
+    var i = path.indexOf(mark);
+    if (i < 0) return q;
+    path.slice(i + mark.length).split('&').forEach(function (kv) {
+      var a = kv.split('=');
+      if (a[0]) q[a[0]] = a[1];
+    });
+    return q;
+  }
   window.fetch = function (path) {
-    if (path.indexOf('/fan/on')  >= 0) mock.fan  = true;
-    if (path.indexOf('/fan/off') >= 0) mock.fan  = false;
+    // 设备开关：/dev?ch=1~4&on=0|1
+    var d = queryOf(path, '/dev?');
+    var ch = +d.ch;
+    if (ch >= 1 && ch <= 4 && d.on !== undefined) mock[DEV_KEY[ch - 1]] = d.on;
+    // 阈值：/set?light=40&pm25on=75…（缺的参数固件里也不会动）
+    var t = queryOf(path, '/set?');
+    Object.keys(t).forEach(function (k) {
+      if (SET_KEY[k] !== undefined) mock[SET_KEY[k]] = +t[k];
+    });
     if (path.indexOf('/mode/auto')   >= 0) mock.mode = 'auto';
     if (path.indexOf('/mode/manual') >= 0) mock.mode = 'manual';
-    // 自动模式下让数值随时间飘，复现固件里的回差逻辑
-    if (path.indexOf('/api/state') >= 0 && mock.mode === 'auto') {
-      mock.pm25 = Math.max(5, Math.min(210, mock.pm25 + (Math.random() * 26 - 13)));
-      if (mock.pm25 > mock.on)  mock.fan = true;
-      if (mock.pm25 < mock.off) mock.fan = false;
-    }
-    // 光照：每 6 次轮询（约 6 秒）在 暗/亮 之间翻转一次，强度百分比跟着变
+
     if (path.indexOf('/api/state') >= 0) {
+      // 自动模式：让 PM2.5 随时间飘，并按**用户设的阈值**带动风扇 ——
+      // 复现固件里的双阈值回差（拖滑杆能立刻看出风扇跟着变）
+      if (mock.mode === 'auto') {
+        mock.pm25 = Math.max(5, Math.min(210, mock.pm25 + (Math.random() * 26 - 13)));
+        if (mock.pm25 > mock.setPm25On)  mock.devFan = '1';
+        if (mock.pm25 < mock.setPm25Off) mock.devFan = '0';
+      }
+      // 光照：每 6 次轮询（约 6 秒）在 暗/亮 之间翻转一次，强度百分比跟着变
       mockTick++;
       if (mockTick % 6 === 0) {
         mock.light = (mock.light === 'dark') ? 'bright' : 'dark';
         mock.lightPct = mock.light === 'dark' ? 30 : 85;
+      }
+      if (mock.mode === 'auto') {
+        if (mock.lightPct < mock.setLight)  mock.devLight = '1';
+        else                                mock.devLight = '0';
+        mock.devDehum = (mock.humi > mock.setHumi) ? '1' : '0';
+        mock.devAc    = (mock.temp > mock.setTemp) ? '1' : '0';
+      }
+      // 语音：每 9 次轮询（约 9 秒）假装识别到一条指令，
+      // 中间让「多少秒前」往上走 —— 好看清时间那一段会变
+      if (++voiceTick % 9 === 0) {
+        mock.voiceCmd = VOICE_WORDS[voiceIdx++ % VOICE_WORDS.length];
+        mock.voiceAgo = 0;
+      } else if (mock.voiceAgo >= 0) {
+        mock.voiceAgo++;
       }
     }
     return Promise.resolve({ ok: true, json: function () { return Promise.resolve(mock); } });

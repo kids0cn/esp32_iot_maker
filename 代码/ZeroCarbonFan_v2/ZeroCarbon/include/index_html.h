@@ -155,6 +155,16 @@ const char INDEX_HTML[] = R"rawliteral(
   </div>
 
   <div class="card">
+    <div class="row"><span class="k">语音模块</span><span class="v" id="voiceState">--</span></div>
+    <div class="row">
+      <span class="k">最近指令</span>
+      <span class="v" id="voiceLast">--</span>
+    </div>
+    <div class="hint">先喊「你好小丹」唤醒，再说「开风扇 / 开灯 / 关灯 / 关闭风扇」。
+      识别到就直接控制对应设备，并自动切到<b>手动</b>模式。</div>
+  </div>
+
+  <div class="card">
     <div class="row"><span class="k">控制模式</span></div>
     <div class="seg">
       <button id="mAuto">自动</button>
@@ -228,6 +238,14 @@ const char INDEX_HTML[] = R"rawliteral(
     return ['严重污染', 'bad'];
   }
 
+  // 「多久之前」换个自然的说法。传进来 -1（从没收到过）返回空串。
+  function agoText(sec) {
+    if (sec === undefined || sec < 0) return '';
+    if (sec < 60)   return sec + ' 秒前';
+    if (sec < 3600) return Math.floor(sec / 60) + ' 分钟前';
+    return Math.floor(sec / 3600) + ' 小时前';
+  }
+
   function render(s) {
     state = s;
 
@@ -282,6 +300,17 @@ const char INDEX_HTML[] = R"rawliteral(
     $('devHint').textContent = auto
       ? '自动模式：4 路都由传感器驱动，切到「手动」才能点。'
       : '手动模式：点任意一行即可开 / 关该路继电器。';
+
+    // ── 语音模块 ──
+    // voiceSynced：模块上电跟我们握手过没有。没握手 = 没接 / 没供电 / 收发接反了。
+    // voiceCmd + voiceAgo：最近一条指令和「多久之前」。指令是**事件**，
+    // 没有「当前值」可读，只能显示最后一次 —— 所以带上时间才说得清。
+    var vOn = (s.voiceSynced === '1');
+    $('voiceState').textContent = vOn ? '在线' : '未握手';
+    $('voiceState').style.color = vOn ? COLOR.ok.fg : COLOR.bad.fg;
+    $('voiceLast').textContent = s.voiceCmd
+      ? s.voiceCmd + ' · ' + agoText(s.voiceAgo)
+      : '还没收到指令';
 
     // ── 模式 ──
     $('mAuto').className   = auto ? 'active' : '';

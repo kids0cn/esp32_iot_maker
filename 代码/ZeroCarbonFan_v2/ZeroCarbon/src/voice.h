@@ -99,6 +99,8 @@ static int8_t    voicePending = VC_NONE;   // 攒着还没被取走的指令
 //   loop() 里 voicePoll() 和 voiceTakeCmd() 是紧挨着调的，两条指令之间
 //   隔着零点几毫秒就被取走了，实际不会撞。万一真撞上（连说两条），
 //   后一条覆盖前一条 —— 按「用户最后说的算」处理，比丢新指令合理。
+static bool        voiceSynced  = false;   // 握过手没有（= 模块在线）
+static const char* voiceLastCmd = "";      // 最近一条指令的名字（指向表里的字面量）
 
 // 从缓冲开头丢掉 n 个字节
 static inline void voiceDropBytes(int n) {
@@ -112,6 +114,7 @@ static inline void voiceHandleFrame(const uint8_t* f) {
   // ① 握手：认出请求就立刻回 ACK（见文件头「上电握手必须应答」）
   if (memcmp(f, VOICE_SYNC_REQ, 8) == 0) {
     Serial2.write(VOICE_SYNC_ACK, 8);
+    voiceSynced = true;                 // 握手过了 = 模块在线
     Serial.println("  [语音] 收到握手，已回 ACK");
     return;
   }
@@ -120,6 +123,7 @@ static inline void voiceHandleFrame(const uint8_t* f) {
   for (int i = 0; i < VOICE_RX_TABLE_LEN; i++) {
     if (memcmp(f, VOICE_RX_TABLE[i].bytes, 8) == 0) {
       voicePending = VOICE_RX_TABLE[i].cmd;
+      voiceLastCmd = VOICE_RX_TABLE[i].name;   // 给网页显示「最近指令」用
       Serial.print("  [语音] 识别到：");
       Serial.println(VOICE_RX_TABLE[i].name);
       return;
@@ -193,3 +197,11 @@ inline int8_t voiceTakeCmd() {
   voicePending = VC_NONE;
   return c;
 }
+
+// ================== 状态查询：给 main 打日志 / 填网页用 ==================
+// 模块上电后跟我们握手过没有（= 它在线）。没握手多半是没接、没供电、
+// 或者两根信号线接反了 —— 网页上显示成「未握手」就是在提示这个。
+inline bool voiceIsSynced() { return voiceSynced; }
+
+// 最近一条指令的名字（如「开风扇」）。没收到过返回空串。
+inline const char* voiceCmdName() { return voiceLastCmd; }

@@ -94,6 +94,14 @@ const unsigned long PM25_SAMPLE_MS  = 1000;   // PM2.5 每秒一次
 const unsigned long LIGHT_SAMPLE_MS = 200;    // 光照 200ms 一次（快，可以勤快点）
 // 温湿度的周期在 dht11.h 的 DHT_READ_MS（2 秒）
 
+// ================== 语音状态（给网页显示用） ==================
+// 「模块有没有握手」直接问 voice.h；「最近一条指令」main 这边记一下时间，
+// 好让网页显示成「开风扇 · 12 秒前」—— 指令本身是**事件**，
+// 没有一个「当前值」可以读，只能记下最后一次。
+bool          voiceHasCmd  = false;   // 收到过指令没有
+String        voiceCmdText = "";      // 最近一条指令的名字
+unsigned long voiceCmdAtMs = 0;       // 收到它的时间（用来算「多久之前」）
+
 // 用户可调的阈值和模式 —— setup 里由 settingsLoad() 从 NVS 装载，改动后 settingsSave()。
 // ⚠️ 为什么必须存 NVS：普通变量在 RAM 里，断电就没了 —— 用户在网页上设的值
 //    会「凭空消失」、重启后回默认。这个坑本项目已经踩过一次（模式断电复位）。
@@ -128,6 +136,13 @@ void sendState() {
   json += ",\"setPm25Off\":" + String(set.pm25Off);
   json += ",\"setHumi\":"    + String(set.humiOn);
   json += ",\"setTemp\":"    + String(set.tempOn);
+
+  // 语音：模块在线状态 + 最近一条指令（网页上显示成「开风扇 · 12 秒前」）
+  //   voiceSynced '1'/'0' —— 模块上电握手过没有
+  //   voiceAgo    距上次收指令的秒数，-1 = 从没收到过（网页据此显示「还没收到指令」）
+  json += ",\"voiceSynced\":" + String(voiceIsSynced() ? "1" : "0");
+  json += ",\"voiceCmd\":\"" + voiceCmdText + "\"";
+  json += ",\"voiceAgo\":"    + String(voiceHasCmd ? (int)((millis() - voiceCmdAtMs) / 1000) : -1);
 
   json += "}";
   server.send(200, "application/json", json);
@@ -370,6 +385,11 @@ void loop() {
   // 不会每轮 loop() 都重复触发同一条指令。
   int8_t vc = voiceTakeCmd();
   if (vc != VC_NONE) {
+    // 记下来给网页显示（含唤醒词/欢迎语：它们不控设备，但用户想看见"收到了"）
+    voiceHasCmd  = true;
+    voiceCmdText = voiceCmdName();
+    voiceCmdAtMs = millis();
+
     switch (vc) {
       case VC_LIGHT_ON:  relaySet(DEV_LIGHT, true);  break;   // 开灯   → IN2
       case VC_LIGHT_OFF: relaySet(DEV_LIGHT, false); break;   // 关灯   → IN2
