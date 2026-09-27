@@ -263,8 +263,6 @@ const char INDEX_HTML[] = R"rawliteral(
   }
 
   function render(s) {
-    state = s;
-
     // PM2.5 数值 + 颜色
     var g = grade(s.pm25);
     var c = COLOR[g[1]];
@@ -309,7 +307,7 @@ const char INDEX_HTML[] = R"rawliteral(
       //   JSON 那边漏了引号、变成数字 1，1 === '1' 会是 false ——
       //   整个卡片就会永远显示「已关闭」，而且按钮发的永远是「开」。
       //   包上 String() 两种都能认，一行成本的保险。
-      var on = String(s[DEVS[i].key]) === '1';
+      var on = String(s[DEVS[i]]) === '1';
       $('d' + i).className = 'dot ' + (on ? 'on' : 'off');
       // 每一路两个按钮：代表**当前状态**的那个填色高亮
       for (var j = 0; j < 2; j++) {
