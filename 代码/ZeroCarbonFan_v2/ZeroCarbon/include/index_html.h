@@ -230,16 +230,11 @@ const char INDEX_HTML[] = R"rawliteral(
 <script>
 (function () {
   var $ = function (id) { return document.getElementById(id); };
-  var state = null;
 
-  // 4 路设备 —— key 必须和固件 sendState() 发的字段名一致
-  // ch 是页面传给板子的通道号（1~4，板子内部是数组下标 0~3）
-  var DEVS = [
-    { ch: 1, key: 'devFan'   },
-    { ch: 2, key: 'devLight' },
-    { ch: 3, key: 'devDehum' },
-    { ch: 4, key: 'devAc'    }
-  ];
+  // 4 路设备 —— key 必须和固件 sendState() 发的字段名一字不差。
+  // 顺序也要和下面 HTML 里那 4 行、以及按钮上的 data-ch=1~4 对齐。
+  // （通道号由按钮自己带，这里只留字段名 —— 用来从 /api/state 里读状态。）
+  var DEVS = ['devFan', 'devLight', 'devDehum', 'devAc'];
 
   // 三档颜色写死成具体色值，不用 CSS 变量也不碰 color-mix()——
   // 后者要 Safari 16.2+ / Chrome 111+，演示用的手机若是老机型会掉样式。
@@ -308,25 +303,33 @@ const char INDEX_HTML[] = R"rawliteral(
 
     // ── 4 路设备状态（固件读的是**真实引脚电平**，不是变量）──
     var auto = (s.mode === 'auto');
+    var devBtns = document.querySelectorAll('.dev .btns button');
     for (var i = 0; i < DEVS.length; i++) {
-      var on = s[DEVS[i].key] === '1';
+      // ★ 外面包一层 String()。固件发的是字符串 '1'/'0'，但万一哪天
+      //   JSON 那边漏了引号、变成数字 1，1 === '1' 会是 false ——
+      //   整个卡片就会永远显示「已关闭」，而且按钮发的永远是「开」。
+      //   包上 String() 两种都能认，一行成本的保险。
+      var on = String(s[DEVS[i].key]) === '1';
       $('d' + i).className = 'dot ' + (on ? 'on' : 'off');
-      $('t' + i).textContent = on ? '运行中' : '已关闭';
-      // 自动模式下 4 路全由传感器驱动 —— 置灰并禁点。
-      // 否则点了也会被下一轮自动逻辑覆盖回去，徒增困惑。
-      var row = document.querySelectorAll('.row.dev')[i];
-      if (row) row.classList.toggle('off', auto);
+      // 每一路两个按钮：代表**当前状态**的那个填色高亮
+      for (var j = 0; j < 2; j++) {
+        var b = devBtns[i * 2 + j];
+        if (!b) continue;
+        var isOnBtn = (b.getAttribute('data-on') === '1');
+        b.className = (isOnBtn === on) ? (on ? 'selOn' : 'selOff') : '';
+        b.disabled  = auto;
+      }
     }
     $('devMode').textContent = auto ? '自动' : '手动';
     $('devHint').textContent = auto
-      ? '自动模式：4 路都由传感器驱动，切到「手动」才能点。'
-      : '手动模式：点任意一行即可开 / 关该路继电器。';
+      ? '自动模式：4 路都由传感器驱动，按钮已锁 —— 切到「手动」才能按。'
+      : '手动模式：按「开 / 关」即可切换该路继电器（会听到咔哒声）。';
 
     // ── 语音模块 ──
     // voiceSynced：模块上电跟我们握手过没有。没握手 = 没接 / 没供电 / 收发接反了。
     // voiceCmd + voiceAgo：最近一条指令和「多久之前」。指令是**事件**，
     // 没有「当前值」可读，只能显示最后一次 —— 所以带上时间才说得清。
-    var vOn = (s.voiceSynced === '1');
+    var vOn = (String(s.voiceSynced) === '1');
     $('voiceState').textContent = vOn ? '在线' : '未握手';
     $('voiceState').style.color = vOn ? COLOR.ok.fg : COLOR.bad.fg;
     $('voiceLast').textContent = s.voiceCmd
@@ -376,17 +379,16 @@ const char INDEX_HTML[] = R"rawliteral(
     refresh();   // 立刻拉一次，不等定时器，点下去就有反应
   }
 
-  // ── 4 路设备：点整行切换 ──
-  // 自动模式下行被加了 .off，直接忽略点击（和视觉一致）。
-  Array.prototype.forEach.call(document.querySelectorAll('.row.dev'), function (row) {
-    row.onclick = function () {
-      if (row.classList.contains('off')) return;
-      var ch  = row.getAttribute('data-ch');
-      var key = row.getAttribute('data-key');
-      var on  = state && state[key] === '1';
-      cmd('/dev?ch=' + ch + '&on=' + (on ? '0' : '1'));   // 当前是开的就发关，反之亦然
-    };
-  });
+  // ── 4 路设备：开 / 关按钮 ──
+  // 每路两个按钮，各带自己的 data-ch / data-on，按下就发一次请求。
+  // 自动模式下按钮统一 disabled（render() 里设），和「传感器说了算」一致。
+  Array.prototype.forEach.call(
+    document.querySelectorAll('.dev .btns button'), function (btn) {
+      btn.onclick = function () {
+        if (btn.disabled) return;
+        cmd('/dev?ch=' + btn.getAttribute('data-ch') + '&on=' + btn.getAttribute('data-on'));
+      };
+    });
 
   // ── 模式切换 ──
   $('mAuto').onclick   = function () { cmd('/mode/auto'); };
