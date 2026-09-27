@@ -24,17 +24,35 @@
  * ── 它会做什么 ──────────────────────────────────
  *   1. 每收到一帧，**先原样打 hex**，再对照指令表打中文指令名
  *   2. 表里没有的帧照样打 hex + 各字段，不静默丢弃（换命令词后还看得见东西）
- *   3. 控制台按 1~7 反向发一帧让模块念一句话 —— 验的是 ESP32→模块 那根线
+ *   3. 收到**握手帧**就自动回 ACK —— 不回的话模块会一直重发（见下面）
+ *   4. 控制台按 1~7 反向发一帧让模块念一句话 —— 验的是 ESP32→模块 那根线
+ *
+ * ── 上电握手（2026-09-27 实测到的，很重要）──────────
+ *   模块上电后会**反复**发这一帧等我们回话：
+ *       收：A5 FA 00 80 0A 00 21 FB   ← 波特率同步请求
+ *       发：A5 FA 00 80 0A 00 22 FB   ← 我们的 ACK（只差最后的校验字节）
+ *   一直不回的话，模块会**每 0.4 秒重发一次**，而且它在校准期间会
+ *   把波特率在 115200×0.90 ~ 115200×1.10 之间来回试 —— 换挡那几帧
+ *   收进来就是错位的乱码（实测出现过 `A5 FA 00 00 0A 00 61 FB`）。
+ *   回了 ACK，模块才锁定波特率、停止重试，才会走到发指令那一步。
+ *
+ *   **为什么敢自动回**：ACK 的意思是「你这个波特率我收对了」——
+ *   而我们能逐字节认出这个 8 字节帧，本身就证明波特率是对的。
+ *   （ACK 格式出处：SDK `user_msg_deal.c` 里
+ *     `memcmp(p_data, "\xA5\xFA\x00\x80\x0A\x00\x22\xFB", length)`，
+ *     和你那份 xlsx「握手协议 · 芯片接收」那一行完全一致。）
  *
  * ── 怎么判断 ────────────────────────────────────
- *   · 说「你好小丹」「开风扇」→ 打出中文指令名          ✓ 接对了
+ *   · 收到握手帧 + 打出「已回 ACK」      ✓ 通了，等它别再重发
+ *   · 说「你好小丹」「开风扇」→ 打出中文指令名   ✓ 握手过了，指令也通
  *   · 只有 hex、标着「未登记」 → 协议对不上，把 hex 贴出来对表
  *   · 一个字都没有             → 接线 / 波特率 / 收发接反了（按上面①②③重来）
  *
  * ── 协议出处（都是厂商代码里逐字节写死的，不是我推的）──
  *   文档/传感器/语音控制模块/命令词播报词协议列表V3_中文模板.xlsx  ← 你那份表
  *   文档/传感器/语音控制模块/语音芯片sdk/CI13XX_SDK_.../.../user_msg_deal.c
- *     里面的 send_data[]（模块→主机）和 recv_data[]（主机→模块）
+ *     里面的 send_data[]（模块→主机）、recv_data[]（主机→模块）、
+ *     以及波特率 ACK 的 memcmp
  *   固件配置 user_config.h：UART_PROTOCOL_NUMBER = HAL_UART1_BASE、115200
  */
 
@@ -83,6 +101,19 @@ const VoiceFrame TX_TABLE[] = {
 };
 const int TX_TABLE_LEN = sizeof(TX_TABLE) / sizeof(TX_TABLE[0]);
 
+// ── 上电握手（波特率同步）────────────────────────
+// 模块每隔一小段时间发 SYNC_REQ 等我们回话；回了 SYNC_ACK 它才锁定波特率、
+// 停止重试。两帧都只差最后一个校验字节。
+// 出处：SDK user_msg_deal.c 里 defined_send_baudrate_sync_req() 发前者、
+//       com_msg_process() 里 memcmp 认后者。和 xlsx「握手协议」两行一致。
+const uint8_t SYNC_REQ[8] = {0xA5,0xFA,0x00,0x80,0x0A,0x00,0x21,0xFB};
+const uint8_t SYNC_ACK[8] = {0xA5,0xFA,0x00,0x80,0x0A,0x00,0x22,0xFB};
+
+// 已知的「类型」字节（第 4 字节）。认不出的类型多半是换波特率期间的错位字节。
+bool isKnownType(uint8_t t) {
+  return t == 0x80 || t == 0x81 || t == 0x82;
+}
+
 // =============== 接收缓冲与组帧 ===============
 const int RX_BUF_SIZE = 64;
 uint8_t rxBuf[RX_BUF_SIZE];
@@ -121,6 +152,15 @@ void handleFrame(const uint8_t* f) {
     }
   }
 
+  // 握手帧：认出来就立刻回 ACK（我们能逐字节认出它，本身就是「波特率对了」的证明）
+  if (memcmp(f, SYNC_REQ, 8) == 0) {
+    Serial.println("   → 握手：波特率同步请求");
+    Serial2.write(SYNC_ACK, 8);
+    Serial.println("     已回 ACK（A5 FA 00 80 0A 00 22 FB）"
+                   " —— 模块收到后锁定波特率、不再重发");
+    return;
+  }
+
   // 表里没有：把字段拆开打，方便对照厂商的表查
   Serial.print("   → 未登记的帧  类型=0x");
   Serial.print(f[3], HEX);
@@ -128,7 +168,15 @@ void handleFrame(const uint8_t* f) {
   Serial.print(f[4], HEX);
   Serial.print("  校验=0x");
   Serial.print(f[6], HEX);
-  Serial.println("   （把上面这行 hex 对着 xlsx 的「发送协议」列核一下）");
+  if (!isKnownType(f[3])) {
+    // 类型不认识 —— 多半不是真帧，而是换波特率期间错位的字节
+    Serial.println();
+    Serial.println("     类型字节不在 0x80/0x81/0x82 之内，**多半是错位的字节**：");
+    Serial.println("     模块在校准波特率时会在 115200×0.90 ~ ×1.10 之间来回试，");
+    Serial.println("     换挡那几帧收进来就是乱的。回了 ACK 之后这种帧应该就没了。");
+  } else {
+    Serial.println("   （把上面这行 hex 对着 xlsx 的「发送协议」列核一下）");
+  }
 }
 
 // 从缓冲区里尽量抠出完整的 A5 FA … FB 帧
@@ -167,6 +215,16 @@ void sendByKey(char key) {
 
 void printHelp() {
   Serial.println();
+  Serial.println("── 上电握手（程序会自动做，不用按键）──────────");
+  Serial.print("  模块发 ");
+  printHex(SYNC_REQ, 8);
+  Serial.println("  ← 波特率同步请求");
+  Serial.print("  我们回 ");
+  printHex(SYNC_ACK, 8);
+  Serial.println("  ← ACK（收到请求就自动回）");
+  Serial.println("  不回的话模块每 0.4 秒重发一次，还会在 115200×0.90~×1.10 之间");
+  Serial.println("  来回试波特率 —— 换挡那几帧收进来就是错位的乱码。");
+  Serial.println();
   Serial.println("── 控制台按键 ─────────────────────────────");
   Serial.println("  1~7  发一帧给模块，让它播一句（验 ESP32→模块 那根线）");
   Serial.println("  h    再打一遍这份帮助");
@@ -188,6 +246,9 @@ void setup() {
   Serial.print(VOICE_TX_PIN);
   Serial.println("   波特率 115200");
   Serial.println("  ⚠️ 丝印两个信号脚都叫 TX —— 先只接①，说了话有打印再接②");
+  Serial.println();
+  Serial.println("  上电先看握手：模块会发 A5 FA 00 80 0A 00 21 FB，本程序收到就自动回");
+  Serial.println("  ACK（… 22 FB）。握手过了、它不再刷屏，再对模块说话测指令。");
   Serial.println();
   Serial.println("  认识的指令：");
   for (int i = 0; i < RX_TABLE_LEN; i++) {
