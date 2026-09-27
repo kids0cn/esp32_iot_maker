@@ -138,10 +138,10 @@ void sendState() {
 
   // 4 路设备：**读真实引脚电平**，不靠变量记「刚才设成了什么」——
   // 变量会骗人，读引脚才是事实（原版固件对风扇就是这么做的）
-  json += ",\"devFan\":"   + String(relayGet(DEV_FAN)   ? "1" : "0");
-  json += ",\"devLight\":" + String(relayGet(DEV_LIGHT) ? "1" : "0");
-  json += ",\"devDehum\":" + String(relayGet(DEV_DEHUM) ? "1" : "0");
-  json += ",\"devAc\":"    + String(relayGet(DEV_AC)    ? "1" : "0");
+  json += ",\"devFan\":"   + json01(relayGet(DEV_FAN));
+  json += ",\"devLight\":" + json01(relayGet(DEV_LIGHT));
+  json += ",\"devDehum\":" + json01(relayGet(DEV_DEHUM));
+  json += ",\"devAc\":"    + json01(relayGet(DEV_AC));
 
   // 用户可调阈值（回填给网页的滑杆）
   json += ",\"setLight\":"   + String(set.lightDark);
@@ -153,7 +153,7 @@ void sendState() {
   // 语音：模块在线状态 + 最近一条指令（网页上显示成「开风扇 · 12 秒前」）
   //   voiceSynced '1'/'0' —— 模块上电握手过没有
   //   voiceAgo    距上次收指令的秒数，-1 = 从没收到过（网页据此显示「还没收到指令」）
-  json += ",\"voiceSynced\":" + String(voiceIsSynced() ? "1" : "0");
+  json += ",\"voiceSynced\":" + json01(voiceIsSynced());
   json += ",\"voiceCmd\":\"" + voiceCmdText + "\"";
   json += ",\"voiceAgo\":"    + String(voiceHasCmd ? (int)((millis() - voiceCmdAtMs) / 1000) : -1);
 

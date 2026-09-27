@@ -57,21 +57,29 @@ const char INDEX_HTML[] = R"rawliteral(
   .dot.dark{background:#f59e0b; box-shadow:0 0 10px #f59e0b}
   .dot.bright{background:#22c55e; box-shadow:0 0 10px #22c55e}
 
-  /* ── 按钮（现在只有「控制模式」卡片里的 自动/手动 在用）── */
+  /* ── 按钮 ── */
   button{
     font:inherit; font-size:16px; font-weight:600; padding:14px 0; border:none;
     border-radius:13px; color:#fff; cursor:pointer; transition:opacity .2s, transform .1s;
   }
   button:active:not(:disabled){transform:scale(.97)}
   button:disabled{opacity:.28; cursor:not-allowed}
-  /* 注：早先风扇卡片用的 .btns/.on-btn/.off-btn 已删 —— 那个卡片换成了
-     4 路设备行（点整行切换），不再需要两个大按钮。 */
+  /* 注：早先风扇卡片那两个大按钮（.on-btn/.off-btn）已删。
+     4 路设备行的「开 / 关」小按钮样式在下面 .dev .btns 那一段。 */
 
-  /* ── 设备行（4 路继电器，整行可点）── */
-  .dev{cursor:pointer; padding:6px 0; border-radius:10px; transition:background .15s}
-  .dev:active{background:#0e1729}
-  .dev.off{opacity:.55}          /* 自动模式下整行置灰 = 不可点 */
-  .dev .k{color:var(--fg); font-size:15px}
+  /* ── 设备行（4 路继电器）：名字 + 开 / 关两个按钮 ──
+     2026-09-27 改的。原来是「点整行切换」，问题是整行看不出能点、
+     也看不出当前是开是关，演示时别人根本不敢点。
+     现在每路两个明确按钮，代表**当前状态**的那个填充高亮 —— 一眼就懂。 */
+  .dev{padding:4px 0}
+  .dev .k{display:flex; align-items:center; color:var(--fg); font-size:15px}
+  .dev .btns{display:flex; gap:6px; flex-shrink:0}
+  .dev .btns button{
+    font-size:13px; padding:8px 15px; border-radius:9px;
+    background:#0e1729; border:1px solid var(--line); color:var(--dim);
+  }
+  .dev .btns button.selOn {background:var(--ok); color:#06121f; border-color:var(--ok)}
+  .dev .btns button.selOff{background:#475569;   color:#fff;    border-color:#475569}
 
   /* ── 设置行（滑杆）── */
   .srow{display:flex; align-items:center; gap:10px; margin-top:14px}
@@ -134,21 +142,34 @@ const char INDEX_HTML[] = R"rawliteral(
   <div class="card">
     <div class="row"><span class="k">设备</span><span class="v" id="devMode">--</span></div>
 
-    <div class="row dev" data-ch="1" data-key="devFan">
-      <span class="k">进风 / 排风扇</span>
-      <span class="v"><span class="dot off" id="d0"></span><span id="t0">--</span></span>
+    <!-- 每路两个按钮：开 / 关。代表**当前状态**的那个会高亮（JS 里设）。 -->
+    <div class="row dev">
+      <span class="k"><span class="dot off" id="d0"></span>进风 / 排风扇</span>
+      <span class="btns">
+        <button type="button" data-ch="1" data-on="1">开</button>
+        <button type="button" data-ch="1" data-on="0">关</button>
+      </span>
     </div>
-    <div class="row dev" data-ch="2" data-key="devLight">
-      <span class="k">灯</span>
-      <span class="v"><span class="dot off" id="d1"></span><span id="t1">--</span></span>
+    <div class="row dev">
+      <span class="k"><span class="dot off" id="d1"></span>灯</span>
+      <span class="btns">
+        <button type="button" data-ch="2" data-on="1">开</button>
+        <button type="button" data-ch="2" data-on="0">关</button>
+      </span>
     </div>
-    <div class="row dev" data-ch="3" data-key="devDehum">
-      <span class="k">抽湿机</span>
-      <span class="v"><span class="dot off" id="d2"></span><span id="t2">--</span></span>
+    <div class="row dev">
+      <span class="k"><span class="dot off" id="d2"></span>抽湿机</span>
+      <span class="btns">
+        <button type="button" data-ch="3" data-on="1">开</button>
+        <button type="button" data-ch="3" data-on="0">关</button>
+      </span>
     </div>
-    <div class="row dev" data-ch="4" data-key="devAc">
-      <span class="k">空调</span>
-      <span class="v"><span class="dot off" id="d3"></span><span id="t3">--</span></span>
+    <div class="row dev">
+      <span class="k"><span class="dot off" id="d3"></span>空调</span>
+      <span class="btns">
+        <button type="button" data-ch="4" data-on="1">开</button>
+        <button type="button" data-ch="4" data-on="0">关</button>
+      </span>
     </div>
 
     <div id="devHint" class="hint"></div>
