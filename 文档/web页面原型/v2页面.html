@@ -213,7 +213,7 @@
       <span class="val" id="vTemp">--</span>
     </div>
 
-    <div class="hint">拖动松手即生效，并<b>保存到 Flash</b> —— 断电重启也不会丢。自动模式下 4 路由传感器驱动，阈值照样生效。</div>
+    <div class="hint">拖动松手即生效，并<b>保存到 Flash</b> —— 断电重启也不会丢。</div>
   </div>
 </div>
 
@@ -411,7 +411,6 @@
     $('mManual').className = auto ? '' : 'active';
     $('modeHint').textContent = auto
       ? 'PM2.5 差 → 开风扇；光照暗 → 开灯；湿度高 → 开抽湿机；温度高 → 开空调。'
-        + '每路都带回差，防止在阈值附近反复启停。'
       : '上面四行说了算，自动逻辑不介入。阈值在下面可以改。';
 
     // ── 阈值回填到滑杆 ──
