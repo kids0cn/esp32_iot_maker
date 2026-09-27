@@ -27,9 +27,11 @@
 
 ```
 代码/ZeroCarbonFan/ZeroCarbonFan.ino           # 原版 —— 提供方提供，历史存档，别改
-代码/ZeroCarbonFan_v2/ZeroCarbon/              # ★ PlatformIO 工程（src/main.cpp 网页热点、
-                                               #   src/sensorTest_pm2.5.cpp 传感器测试、
-                                               #   src/voiceTest.cpp 语音模块测试）
+代码/ZeroCarbonFan_v2/ZeroCarbon/              # ★ PlatformIO 工程
+                                               #   src/main.cpp       网页热点 + 四路自动控制 + 语音
+                                               #   src/*.h            各模块（light/pm25/dht11/relay/voice/settings）
+                                               #   src/voiceTest.cpp  语音单独测试  [env:voicetest]
+                                               #   src/sensorTest_*.cpp、relayTest.cpp、adcTest.cpp 各带一个 env
 代码/ZeroCarbonFan_v2/ZeroCarbon/include/index_html.h   # 网页唯一源，预览脚本也从这抽
 文档/项目需求.md                                # 需求 + 实现覆盖情况（第 6 节，原版对照）
 文档/v2改动说明.md                              # 历史：v2 曾改了什么（对应固件已删）
@@ -107,4 +109,4 @@ python3 工具/生成网页预览.py
 12. **语音协议的「校验」字节不是前 6 字节的累加和** —— `A5 FA 00 <类型> <命令词> 00 <校验> FB` 里，开风扇 / 关灯 / 关闭风扇三条按字节累加算出来是 `0x22/0x22/0x23`，固件实际发的是 `0x23/0x24/0x25`。**只能整帧逐字节比对**，写成「算校验和」会认错指令。
 13. **厂商给的 ESP32 例程不能用，已删**（2026-09-27）—— 里面 UART 用 GPIO35/36（**只输入，发不出去**）、IIC 用 GPIO37/38（**WROOM-32 模组不引出**），照抄必挂。本项目改用 UART2：**GPIO16 收 / GPIO17 发**，115200。真正要用的协议在 SDK（`user_msg_deal.c`）和 xlsx 里，别再去找例程。
 14. **语音模块的丝印两个信号脚都叫 TX（TX1 / TX2），分不出收发** —— 别猜，按 `文档/接线与引脚.md` 2.6 的「一次只接一根、说了话有打印再接第二根」来判定。
-15. **上电必须回握手帧，否则模块刷屏 + 乱码**（2026-09-27 实测）—— 模块反复发 `A5 FA 00 80 0A 00 21 FB`（波特率同步请求），不回话它就每 0.4 秒重发，还会在 115200×0.90~×1.10 之间试波特率，**换挡那几帧收进来是错位字节**（实测 `A5 FA 00 00 0A 00 61 FB`，类型 `0x00`）。回 `A5 FA 00 80 0A 00 22 FB` 才锁定波特率。`voiceTest.cpp` 收到就自动回；**并进 main 后也必须保留这个应答**，别只留收指令那部分。
+15. **上电必须回握手帧，否则模块刷屏 + 乱码**（2026-09-27 实测）—— 模块反复发 `A5 FA 00 80 0A 00 21 FB`（波特率同步请求），不回话它就每 0.4 秒重发，还会在 115200×0.90~×1.10 之间试波特率，**换挡那几帧收进来是错位字节**（实测 `A5 FA 00 00 0A 00 61 FB`，类型 `0x00`）。回 `A5 FA 00 80 0A 00 22 FB` 才锁定波特率。`voiceTest.cpp` 和 `voice.h` 里都收到就自动回；**并进 main 后这个应答也不能省**，别只留收指令那部分。
