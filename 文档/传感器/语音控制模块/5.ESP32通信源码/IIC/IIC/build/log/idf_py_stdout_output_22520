@@ -1,0 +1,28 @@
+[1/20] Linking C static library esp-idf\cmock\libcmock.a
+[2/20] Linking C static library esp-idf\mqtt\libmqtt.a
+[3/20] Linking C static library esp-idf\protocomm\libprotocomm.a
+[4/20] Linking C static library esp-idf\fatfs\libfatfs.a
+[5/20] Linking C static library esp-idf\perfmon\libperfmon.a
+[6/20] Linking C static library esp-idf\spiffs\libspiffs.a
+[7/20] Linking C static library esp-idf\touch_element\libtouch_element.a
+[8/20] Performing build step for 'bootloader'
+[1/1] cmd.exe /C "cd /D C:\Espressif\frameworks\esp-idf-v5.1.2\IIC\build\bootloader\esp-idf\esptool_py && C:\Espressif\python_env\idf5.1_py3.11_env\Scripts\python.exe C:/Espressif/frameworks/esp-idf-v5.1.2/components/partition_table/check_sizes.py --offset 0x8000 bootloader 0x0 C:/Espressif/frameworks/esp-idf-v5.1.2/IIC/build/bootloader/bootloader.bin"
+Bootloader binary size 0x51a0 bytes. 0x2e60 bytes (36%) free.
+[9/20] Linking C static library esp-idf\esp_local_ctrl\libesp_local_ctrl.a
+[10/20] Linking C static library esp-idf\wifi_provisioning\libwifi_provisioning.a
+[11/20] No install step for 'bootloader'
+[12/20] Completed 'bootloader'
+[13/20] Building C object esp-idf/i2c_master/CMakeFiles/__idf_i2c_master.dir/i2c_master.c.obj
+[14/20] Linking C static library esp-idf\i2c_master\libi2c_master.a
+[15/20] Linking C static library esp-idf\main\libmain.a
+[16/20] Generating ld/sections.ld
+[17/20] Building C object CMakeFiles/main.elf.dir/project_elf_src_esp32s3.c.obj
+[18/20] Linking CXX executable main.elf
+[19/20] Generating binary image from built executable
+esptool.py v4.7.dev3
+Creating esp32s3 image...
+Merged 2 ELF sections
+Successfully created esp32s3 image.
+Generated C:/Espressif/frameworks/esp-idf-v5.1.2/IIC/build/main.bin
+[20/20] cmd.exe /C "cd /D C:\Espressif\frameworks\esp-idf-v5.1.2\IIC\build\esp-idf\esptool_py && C:\Espressif\python_env\idf5.1_py3.11_env\Scripts\python.exe C:/Espressif/frameworks/esp-idf-v5.1.2/components/partition_table/check_sizes.py --offset 0x8000 partition --type app C:/Espressif/frameworks/esp-idf-v5.1.2/IIC/build/partition_table/partition-table.bin C:/Espressif/frameworks/esp-idf-v5.1.2/IIC/build/main.bin"
+main.bin binary size 0x35bc0 bytes. Smallest app partition is 0x100000 bytes. 0xca440 bytes (79%) free.
