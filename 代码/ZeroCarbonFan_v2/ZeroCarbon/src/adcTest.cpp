@@ -34,7 +34,7 @@ const int N = 10;          // 每轮连读几次
 const int GAP_MS = 30;
 
 // 实验 E 用：这个脚就是传感器程序里的 ILED 脚，用来复现同样的时序干扰
-const int LED_PIN = 14;
+const int LED_PIN = 33;      // PM2.5 的 ILED（2026-09-27 从 14 挪来：14 现在是继电器 IN4）
 const int SAMPLING_US   = 280;
 const int SLEEP_US      = 9680;
 
@@ -98,7 +98,7 @@ void loop() {
   Serial.println();
 
   // ── 实验 E：完整复现传感器程序的时序（拉一个脚 → 等 280µs → 紧挨着连读两次）──
-  //   用 GPIO14（就是 ILED 那个脚）制造同样的干扰条件。
+  //   用 GPIO33（就是 ILED 那个脚）制造同样的干扰条件。
   //   如果 E 坏了，说明是「拉脚造成的电源扰动 + 紧挨读」；
   //   如果 E 是好的，那问题就出在传感器本身的负载上。
   Serial.print("[E] 复现传感器时序  :");

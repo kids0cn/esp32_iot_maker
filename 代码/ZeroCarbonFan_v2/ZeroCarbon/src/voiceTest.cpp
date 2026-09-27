@@ -187,7 +187,18 @@ void parseBuffer() {
     for (int i = 0; i + 1 < rxLen; i++) {
       if (rxBuf[i] == 0xA5 && rxBuf[i + 1] == 0xFA) { start = i; break; }
     }
-    if (start < 0) { rxLen = 0; return; }   // 连帧头都没有，整段丢掉
+    if (start < 0) {
+      // 没找到 A5 FA。但**末尾那个 0xA5 可能是下一帧的开头，不能丢** ——
+      // 串口是按字节到的，一次 poll 很可能刚好只读到一帧的第一个字节，
+      // 直接清空的话那一帧就永远拼不起来了（2026-09-27 自测时踩到）。
+      if (rxLen > 0 && rxBuf[rxLen - 1] == 0xA5) {
+        rxBuf[0] = 0xA5;      // 只留这一个字节，等后面的 FA 到
+        rxLen = 1;
+      } else {
+        rxLen = 0;            // 连可能的帧头都没有，整段丢掉
+      }
+      return;
+    }
     if (start > 0) { dropBytes(start); }
 
     // 2) 还没收满一帧，等下一批字节

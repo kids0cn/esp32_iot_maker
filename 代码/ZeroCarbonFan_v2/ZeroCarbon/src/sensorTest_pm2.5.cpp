@@ -10,8 +10,8 @@
  *   ─────────────────────────────────────────
  *   VCC    ────→   VIN / 5V        ⚠️ 5V，不是 3.3V
  *   GND    ────→   GND             必须共地
- *   AO     ────→   GPIO34          模拟输入（只读脚，正合适）
- *   ILED   ────→   GPIO14          LED 驱动
+ *   AO     ────→   GPIO32          模拟输入（ADC1，正合适）
+ *   ILED   ────→   GPIO33          LED 驱动
  *
  *   转接板已经把这些做在板上，**不需要再买电阻**：
  *     · 150Ω + 220µF  供电 RC（手册要求）
@@ -45,7 +45,7 @@
 // AO 必须用 **ADC1** 的脚（GPIO32/33/34/35/36/39）——
 // GPIO 0/2/4/12/13/14/15/25/26/27 是 ADC2，**WiFi 一开 analogRead 就失效**。
 // 本程序不开 WiFi，但这份参数以后要并进开热点的主程序，所以从一开始就守这条。
-const int PM25_LED_PIN = 14;   // 接转接板的 ILED（普通数字输出，哪个脚都行）
+const int PM25_LED_PIN = 33;   // 接转接板的 ILED（普通数字输出，和 AO 在左列相邻两孔）
 const int PM25_AN_PIN  = 32;   // 接转接板的 AO。ADC1_CH4
 
 // ================== LED 极性 ==================
@@ -253,7 +253,7 @@ void ledBringUpTest() {
     g_ledOnLevel = -1;
     Serial.println("      ❌ 两种电平下 AO 几乎一样（差 " + String(diff) + " mV）");
     Serial.println("         → **LED 没被驱动起来**，或 ILED 这条线没通。这不是极性问题。");
-    Serial.println("         手动验证：把 ILED 线从 GPIO14 拔下来，分别碰 GND / 3.3V 各 5 秒，");
+    Serial.println("         手动验证：把 ILED 线从 GPIO33 拔下来，分别碰 GND / 3.3V 各 5 秒，");
     Serial.println("         盯着下面的 AO 看 —— 哪个电平让 AO 明显变大，那个就是点亮电平。");
   } else if (avgHigh > avgLow) {
     g_ledOnLevel = HIGH;
@@ -277,7 +277,7 @@ void setup() {
 
   Serial.println();
   Serial.println("=== GP2Y1014AU 转接板 · PM2.5 传感器自检 ===");
-  Serial.println("  接线：VCC→5V（不是3.3V）  GND→GND  AO→GPIO32  ILED→GPIO14");
+  Serial.println("  接线：VCC→5V（不是3.3V）  GND→GND  AO→GPIO32  ILED→GPIO33");
   Serial.print("  ILED = GPIO");
   Serial.print(PM25_LED_PIN);
   Serial.print("（");

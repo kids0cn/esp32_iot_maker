@@ -16,13 +16,16 @@
  *   ✅ PM2.5 读数       —— **真的**（GP2Y1014AU + 转接板，见 pm25.h）
  *   ✅ 光照             —— 真的（光敏模块，只读 AO，见 light.h）
  *   ✅ 温湿度           —— 真的（DHT11 + YL-47 模块，见 dht11.h）
- *   ⬜ 风扇开关         —— **只是 RAM 里的一个变量**。没接继电器，
- *                          所以「自动模式下 PM2.5 超标就开风扇」只是把变量翻个面，
- *                          硬件上什么都不会发生。
+ *   ✅ 4 路继电器      —— 真的，已上板点动测过（见 relay.h）
+ *   ✅ 语音控制        —— 已并入（见 voice.h）：开灯 / 关灯 / 开风扇 / 关闭风扇
+ *                        语音执行完会自动切「手动」模式，免得被自动逻辑改回去
+ *   ⬜ 灯 / 抽湿机 / 空调的**负载本身还没买** —— 继电器会「咔哒」动作，
+ *     但没有东西真的被控制。演示时要说清这是**模拟负载**
+ *     （见 文档/材料清单.md 第三节）。
  *
- *   ※ 三个传感器都只**读**引脚，没有驱动任何输出 —— 在接上继电器之前，
- *     不存在「引脚没核实就输出、烧板子」的风险。
- *   ※ 三者的采样周期不同：光照随网页请求实时读（快）；
+ *   ※ 语音是**事件**不是读数：voiceTakeCmd() 取走即清空，所以一条指令
+ *     只执行一次，不会每轮 loop() 重复触发。
+ *   ※ 各传感器采样周期不同：光照随网页请求实时读（快）；
  *     PM2.5 每秒一次、温湿度每 2 秒一次（这两个读一次要阻塞几十毫秒，
  *     只能定时采、用缓存值，见下面对应的采样代码）。
  *
@@ -52,6 +55,7 @@
 #include "pm25.h"           // PM2.5：GP2Y1014AU + 转接板
 #include "dht11.h"          // 温湿度：DHT11 + YL-47（用 DHTesp 库）
 #include "relay.h"          // 4 路继电器（光耦隔离，低电平触发）
+#include "voice.h"          // 语音模块 CI1302（串口 UART2，10 条命令词）
 
 // ================== WiFi 热点配置 ==================
 // 手机连的就是这两个。改名字改密码只改这里。
@@ -226,6 +230,8 @@ void setup() {
   dht11Init();   // 温湿度：注册 DHT11 型号，并等 1 秒（手册要求，详见 dht11.h）
   relayInit();   // 4 路继电器：**先写输出锁存器再切 OUTPUT**，
                  // 否则上电瞬间会全吸一下（详见 relay.h）
+  voiceInit();   // 语音模块：开 Serial2（GPIO16/17，115200）。
+                 // 上电握手由 loop() 里的 voicePoll() 自动应答（详见 voice.h）
 
   // 开热点。softAP 内部默认分配 192.168.4.1，不用额外配。
   WiFi.softAP(WIFI_SSID, WIFI_PASS);
@@ -261,7 +267,15 @@ void setup() {
     Serial.print(pct < set.lightDark ? "暗" : "亮");   // 用用户阈值判定
   }
   Serial.println();
-  Serial.print("  继电器：IN1=GPIO25 IN2=GPIO26 IN3=GPIO33 IN4=GPIO13");
+  // ★ 引脚不写死 —— 从 relay.h 的 RELAY_PIN 读，改脚时这里自动跟着变
+  Serial.print("  继电器：");
+  for (int i = 0; i < RELAY_COUNT; i++) {
+    if (i) Serial.print("  ");
+    Serial.print("IN");
+    Serial.print(i + 1);
+    Serial.print("=GPIO");
+    Serial.print(RELAY_PIN[i]);
+  }
   Serial.print("  初态=");
   for (int i = 0; i < RELAY_COUNT; i++) Serial.print(relayGet(i) ? "吸" : "放");
   Serial.println("  （应该全「放」）");
@@ -294,6 +308,15 @@ void setup() {
       Serial.print("读失败（正常现象 —— DHT11 偶发失败，后面会自动重试）");
     }
   }
+  Serial.println();
+  Serial.print("  语音：RX=GPIO");
+  Serial.print(VOICE_RX_PIN);
+  Serial.print("  TX=GPIO");
+  Serial.print(VOICE_TX_PIN);
+  Serial.println("  115200");
+  Serial.println("        能听懂的指令：你好小丹 / 开灯 / 开风扇 / 关灯 / 关闭风扇");
+  Serial.println("        上电握手（A5 FA 00 80 0A 00 21 FB）会自动回 ACK");
+  Serial.println("        语音指令执行后自动切「手动」模式，免得被自动逻辑改回去");
   Serial.println();
   Serial.println();
 }
@@ -334,6 +357,39 @@ void loop() {
     if (dht11Read(t, h)) {
       dhtTemp = t;
       dhtHumi = h;
+    }
+  }
+
+  // ── 语音：收指令并执行 ──────────────────────────────────
+  // ★ voicePoll() 非阻塞：每轮把串口缓冲里的字节读完就返回（一帧 8 字节
+  //   在 115200 下约 0.7ms）。**绝不能在这里 delay() 等待**，否则
+  //   handleClient() 被堵住，网页就没响应了。
+  voicePoll();
+
+  // voiceTakeCmd() 是「取走」语义：拿到一条就清掉，所以只会执行一次，
+  // 不会每轮 loop() 都重复触发同一条指令。
+  int8_t vc = voiceTakeCmd();
+  if (vc != VC_NONE) {
+    switch (vc) {
+      case VC_LIGHT_ON:  relaySet(DEV_LIGHT, true);  break;   // 开灯   → IN2
+      case VC_LIGHT_OFF: relaySet(DEV_LIGHT, false); break;   // 关灯   → IN2
+      case VC_FAN_ON:    relaySet(DEV_FAN,   true);  break;   // 开风扇 → IN1
+      case VC_FAN_OFF:   relaySet(DEV_FAN,   false); break;   // 关风扇 → IN1
+      default: break;   // 唤醒词 / 欢迎语 / 休息语：voice.h 里已打日志，不动设备
+    }
+
+    // ★ 语音算「手动操作」—— 执行完立刻切手动模式。
+    //   不切的话会重演原版固件那个坑：语音刚关掉的风扇，下一轮自动判据
+    //   又给开回来（CLAUDE.md 已知的坑第 5 条）。
+    //   所以这段必须放在**自动控制之前** —— 同一次 loop() 走到下面时
+    //   set.mode 已经是 1，自动那段就跳过了。
+    if (vc == VC_LIGHT_ON || vc == VC_LIGHT_OFF ||
+        vc == VC_FAN_ON   || vc == VC_FAN_OFF) {
+      if (set.mode != 1) {
+        set.mode = 1;
+        settingsSave(set);        // 存 NVS：断电重启也还是手动
+        Serial.println("  [语音] 已切到手动模式（免得被自动逻辑改回去）");
+      }
     }
   }
 
