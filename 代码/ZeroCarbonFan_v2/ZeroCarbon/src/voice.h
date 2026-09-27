@@ -22,7 +22,8 @@
  * ⚠️ 第 7 字节的「校验」**不是**前 6 字节的累加和 —— 开风扇 / 关灯 /
  *    关闭风扇那三条按字节累加是 0x22/0x22/0x23，实际发的是 0x23/0x24/0x25。
  *    所以只能**整帧逐字节比对**，别自作聪明改成算校验和，会认错指令。
- *    帧表逐字节抄自厂商 SDK 的 user_msg_deal.c，和那份 xlsx 一致。
+ *    帧表逐字节抄自厂商 SDK 的 user_msg_deal.c 和随包的 readme.txt，
+ *    **完整指令表（含同义说法、握手帧）见 文档/传感器/语音控制模块.md**。
  *
  * ── ⚠️ 上电握手必须应答（2026-09-27 实测）──────────
  *   模块上电后反复发 A5 FA 00 80 0A 00 21 FB，等我们回
@@ -66,6 +67,12 @@ enum VoiceCmd : int8_t {
 };
 
 // 帧表：模块 → ESP32（类型 0x81）。bytes 必须逐字节精确匹配，见文件头说明。
+//
+// ★ 一个动作可能有**几种说法**，它们发的是**同一帧**（固件 2026-09-27 更新后
+//   同时收这几种叫法）：说「开风扇」和「打开风扇」，模块都发 81 02 00 23；
+//   说「关闭风扇」和「关风扇」，都发 81 03 00 25。
+//   所以表里的 name 用短的那个（网页上行宽有限），同义说法写在下面。
+//   完整的命令词清单见 文档/传感器/语音控制模块.md。
 struct VoiceFrame {
   uint8_t     bytes[8];
   int8_t      cmd;
@@ -75,9 +82,9 @@ struct VoiceFrame {
 static const VoiceFrame VOICE_RX_TABLE[] = {
   { {0xA5,0xFA,0x00,0x81,0x01,0x00,0x21,0xFB}, VC_WAKE,      "你好小丹（唤醒词）" },
   { {0xA5,0xFA,0x00,0x81,0x02,0x00,0x22,0xFB}, VC_LIGHT_ON,  "开灯"               },
-  { {0xA5,0xFA,0x00,0x81,0x02,0x00,0x23,0xFB}, VC_FAN_ON,    "开风扇"             },
+  { {0xA5,0xFA,0x00,0x81,0x02,0x00,0x23,0xFB}, VC_FAN_ON,    "开风扇"             },  // 也叫「打开风扇」
   { {0xA5,0xFA,0x00,0x81,0x02,0x00,0x24,0xFB}, VC_LIGHT_OFF, "关灯"               },
-  { {0xA5,0xFA,0x00,0x81,0x03,0x00,0x25,0xFB}, VC_FAN_OFF,   "关闭风扇"           },
+  { {0xA5,0xFA,0x00,0x81,0x03,0x00,0x25,0xFB}, VC_FAN_OFF,   "关闭风扇"           },  // 也叫「关风扇」
   { {0xA5,0xFA,0x00,0x81,0x0A,0x00,0x2A,0xFB}, VC_WELCOME,   "欢迎语"             },
   { {0xA5,0xFA,0x00,0x81,0x0B,0x00,0x2B,0xFB}, VC_BYE,       "休息语"             },
 };
@@ -135,7 +142,7 @@ static inline void voiceHandleFrame(const uint8_t* f) {
   //    回了 ACK 之后这种帧应该就没了。留着这行日志是为了下次好认。
   Serial.print("  [语音] 未登记的帧");
   for (int i = 0; i < 8; i++) Serial.printf(" %02X", (unsigned)f[i]);
-  Serial.println("   （对照 xlsx 的「发送协议」列）");
+  Serial.println("   （对照 文档/传感器/语音控制模块.md 里的指令表）");
 }
 
 // 从缓冲里尽量抠出完整的 A5 FA … FB 帧
