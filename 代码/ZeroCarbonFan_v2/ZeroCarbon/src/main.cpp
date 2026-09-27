@@ -287,7 +287,8 @@ void setup() {
   Serial.print("  热点名：");
   Serial.println(WIFI_SSID);
   Serial.print("  密码：");
-  Serial.println(WIFI_PASS);
+  // 空密码打出来是一片空白，看着像 bug，所以显式写清楚
+  Serial.println(WIFI_PASS[0] ? WIFI_PASS : "（无 —— 开放网络，连上不用输密码）");
   Serial.print("  手机连上后访问：http://");
   Serial.println(WiFi.softAPIP());
   Serial.print("  强制门户 DNS：");
