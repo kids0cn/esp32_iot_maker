@@ -117,4 +117,10 @@ python3 工具/生成网页预览.py
     - 固件侧：统一走 `main.cpp` 的 `json01()`，**别手拼**。
     - 页面侧：比较时包一层 `String(...)` 兜底。
     - ⚠️ **离线预览页永远查不出这个 bug** —— 预览脚本 `工具/生成网页预览.py` 的 mock 用的本来就是字符串 `'1'`，只有真机才暴露。**改了 `sendState()` 的字段，务必上板看一眼真实 JSON**。
-17. **`[E][WebServer.cpp] _handleRequest(): request handler not found` 是无害噪音** —— ESP32 核心在没有路由匹配时会打这行 `log_e`，**然后照样调 `onNotFound`**（强制门户的 302 跳首页就挂在它上面），所以页面照常能开。触发者是手机后台的连通性探测（`/generate_204`、`/apple-touch-icon.png` 之类）。**别被它带偏去查路由**；要确认是它，看同一时刻页面是否照常刷新。
+17. **`[E][WebServer.cpp] _handleRequest(): request handler not found` 是强制门户在干活的声音，不是故障**（2026-09-27 实测确认）—— 手机连上热点后会去请求几个固定地址判断「这个 WiFi 能不能上网」，这些地址我们**故意不逐个注册**（写死了的话，系统换版本加个新地址就失效），全靠 `onNotFound` 兜底做 **302 跳首页** —— 而**那个 302 正是手机自动弹控制页的触发条件**（它期待的是 204 空响应，收到 302 就判定「需要登录」）。
+    - 核心源码里这两段是**先后都执行**的，打日志**不影响** `onNotFound` 生效：
+      `if (!_currentHandler) { log_e("request handler not found"); }` … `if (!handled && _notFoundHandler) { _notFoundHandler(); handled = true; }`
+      （新版 ESP32 核心已把这行日志去掉，注释写明「`_currentHandler` 为空是合法用法」。）
+    - 常见探测地址：Android `/generate_204` ｜ iOS `/hotspot-detect.html` ｜ Windows `/connecttest.txt`、`/ncsi.txt` ｜ Firefox `/success.txt`、`/canonical.html`。**打了几行 = 手机探了几个地址**，每台新设备第一次连上都会来这么几条。
+    - 判据：这几行之后手机**自动弹出控制页** → 一切正常。**别被它带偏去查路由。**
+    - 2026-09-27 已决定**留着不管**（当「手机连上了」的信号看），不关日志、也不显式注册探测路径。
