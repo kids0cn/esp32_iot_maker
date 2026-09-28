@@ -16,7 +16,7 @@
  *   115200、8N1
  *
  * ── 协议帧（8 字节）──────────────────────────
- *   A5 FA 00 <类型> <命令词> 00 <校验> FB
+ *   A5 FA 00 <类型> <命令词> 00 <命令码> FB
  *     类型 0x80 = 握手   0x81 = 识别结果   0x82 = 主机要求它播报
  *
  * ⚠️ 第 6 个字节（下标 6）**不是校验和，是厂商命令码** ——
@@ -118,7 +118,7 @@ static const VoiceFrame VOICE_RX_TABLE[] = {
 static const int VOICE_RX_TABLE_LEN =
     sizeof(VOICE_RX_TABLE) / sizeof(VOICE_RX_TABLE[0]);
 
-// 上电握手：请求 / 应答。只差最后一个校验字节。
+// 上电握手：请求 / 应答。只差最后一个字节。
 static const uint8_t VOICE_SYNC_REQ[8] = {0xA5,0xFA,0x00,0x80,0x0A,0x00,0x21,0xFB};
 static const uint8_t VOICE_SYNC_ACK[8] = {0xA5,0xFA,0x00,0x80,0x0A,0x00,0x22,0xFB};
 

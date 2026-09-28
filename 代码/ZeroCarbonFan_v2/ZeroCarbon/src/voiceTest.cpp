@@ -30,7 +30,7 @@
  * ── 上电握手（2026-09-27 实测到的，很重要）──────────
  *   模块上电后会**反复**发这一帧等我们回话：
  *       收：A5 FA 00 80 0A 00 21 FB   ← 波特率同步请求
- *       发：A5 FA 00 80 0A 00 22 FB   ← 我们的 ACK（只差最后的校验字节）
+ *       发：A5 FA 00 80 0A 00 22 FB   ← 我们的 ACK（只差最后一个字节）
  *   一直不回的话，模块会**每 0.4 秒重发一次**，而且它在校准期间会
  *   把波特率在 115200×0.90 ~ 115200×1.10 之间来回试 —— 换挡那几帧
  *   收进来就是错位的乱码（实测出现过 `A5 FA 00 00 0A 00 61 FB`）。
@@ -66,7 +66,7 @@ const int VOICE_TX_PIN       = 17;      // ESP32 GPIO17（UART2 的 TX）→ 模
 const unsigned long VOICE_BAUD = 115200; // 和固件里 UART_PROTOCOL_BAUDRATE 一致
 
 // =============== 指令表 ===============
-// 帧格式 8 字节：A5 FA 00 <类型> <命令词> 00 <校验> FB
+// 帧格式 8 字节：A5 FA 00 <类型> <命令词> 00 <命令码> FB
 //   类型 0x81 = 模块发给主机（识别到命令词）
 //   类型 0x82 = 主机发给模块（让它播一句）
 //
@@ -107,7 +107,7 @@ const int RX_TABLE_LEN = sizeof(RX_TABLE) / sizeof(RX_TABLE[0]);
 //   name 里把按键写在开头了，加/删条目时**记得一起改**（顺序即按键）。
 // ⚠️ 这里**不写播报的具体词** —— 音频在固件里，改了固件词就变了，
 //    写死在代码里迟早对不上。想知道念的是什么，按下去听。
-// ⚠️ 欢迎语 / 休息语两个方向的校验不一样（收 2A/2B，发 2B/2C），别照抄错列。
+// ⚠️ 欢迎语 / 休息语两个方向的命令码不一样（收 2A/2B，发 2B/2C），别照抄错列。
 const VoiceFrame TX_TABLE[] = {
   { {0xA5,0xFA,0x00,0x82,0x01,0x00,0x21,0xFB}, "1 → 让模块播「你好小丹」那句"  },
   { {0xA5,0xFA,0x00,0x82,0x02,0x00,0x22,0xFB}, "2 → 让模块播「开灯」那句"      },
@@ -135,7 +135,7 @@ int txIndexOfKey(char key) {
 
 // ── 上电握手（波特率同步）────────────────────────
 // 模块每隔一小段时间发 SYNC_REQ 等我们回话；回了 SYNC_ACK 它才锁定波特率、
-// 停止重试。两帧都只差最后一个校验字节。
+// 停止重试。两帧都只差最后一个字节。
 // 出处：SDK user_msg_deal.c 里 defined_send_baudrate_sync_req() 发前者、
 //       com_msg_process() 里 memcmp 认后者。和厂商 readme.txt 一致。
 const uint8_t SYNC_REQ[8] = {0xA5,0xFA,0x00,0x80,0x0A,0x00,0x21,0xFB};
@@ -198,7 +198,7 @@ void handleFrame(const uint8_t* f) {
   Serial.print(f[3], HEX);
   Serial.print("  命令词=0x");
   Serial.print(f[4], HEX);
-  Serial.print("  校验=0x");
+  Serial.print("  命令码=0x");
   Serial.print(f[6], HEX);
   if (!isKnownType(f[3])) {
     // 类型不认识 —— 多半不是真帧，而是换波特率期间错位的字节
