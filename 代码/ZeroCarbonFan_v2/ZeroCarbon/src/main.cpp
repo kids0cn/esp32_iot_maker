@@ -17,7 +17,8 @@
  *   ✅ 光照             —— 真的（光敏模块，只读 AO，见 light.h）
  *   ✅ 温湿度           —— 真的（DHT11 + YL-47 模块，见 dht11.h）
  *   ✅ 4 路继电器      —— 真的，已上板点动测过（见 relay.h）
- *   ✅ 语音控制        —— 已并入（见 voice.h）：开灯 / 关灯 / 开风扇 / 关闭风扇
+ *   ✅ 语音控制        —— 已并入（见 voice.h）：4 路设备的开/关都能语音控
+ *                        开灯 / 关灯 / 开风扇 / 关闭风扇 / 开抽湿机 / 关抽湿机 / 开空调 / 关空调
  *                        语音执行完会自动切「手动」模式，免得被自动逻辑改回去
  *   ⬜ 灯 / 抽湿机 / 空调的**负载本身还没买** —— 继电器会「咔哒」动作，
  *     但没有东西真的被控制。演示时要说清这是**模拟负载**
@@ -55,7 +56,7 @@
 #include "pm25.h"           // PM2.5：GP2Y1014AU + 转接板
 #include "dht11.h"          // 温湿度：DHT11 + YL-47（用 DHTesp 库）
 #include "relay.h"          // 4 路继电器（光耦隔离，低电平触发）
-#include "voice.h"          // 语音模块 CI1302（串口 UART2，10 条命令词）
+#include "voice.h"          // 语音模块 CI1302（串口 UART2，8 条控设备的指令）
 
 // ================== WiFi 热点配置 ==================
 // 手机连的就是这两个。改名字改密码只改这里。
@@ -413,10 +414,14 @@ void loop() {
     voiceCmdAtMs = millis();
 
     switch (vc) {
-      case VC_LIGHT_ON:  relaySet(DEV_LIGHT, true);  break;   // 开灯   → IN2
-      case VC_LIGHT_OFF: relaySet(DEV_LIGHT, false); break;   // 关灯   → IN2
-      case VC_FAN_ON:    relaySet(DEV_FAN,   true);  break;   // 开风扇 → IN1
-      case VC_FAN_OFF:   relaySet(DEV_FAN,   false); break;   // 关风扇 → IN1
+      case VC_LIGHT_ON:   relaySet(DEV_LIGHT,  true);  break;   // 开灯     → IN2
+      case VC_LIGHT_OFF:  relaySet(DEV_LIGHT,  false); break;   // 关灯     → IN2
+      case VC_FAN_ON:     relaySet(DEV_FAN,    true);  break;   // 开风扇   → IN1
+      case VC_FAN_OFF:    relaySet(DEV_FAN,    false); break;   // 关风扇   → IN1
+      case VC_DEHUM_ON:   relaySet(DEV_DEHUM,  true);  break;   // 开抽湿机 → IN3
+      case VC_DEHUM_OFF:  relaySet(DEV_DEHUM,  false); break;   // 关抽湿机 → IN3
+      case VC_AC_ON:      relaySet(DEV_AC,     true);  break;   // 开空调   → IN4
+      case VC_AC_OFF:     relaySet(DEV_AC,     false); break;   // 关空调   → IN4
       default: break;   // 唤醒词 / 欢迎语 / 休息语：voice.h 里已打日志，不动设备
     }
 
@@ -425,8 +430,10 @@ void loop() {
     //   又给开回来（CLAUDE.md 已知的坑第 5 条）。
     //   所以这段必须放在**自动控制之前** —— 同一次 loop() 走到下面时
     //   set.mode 已经是 1，自动那段就跳过了。
-    if (vc == VC_LIGHT_ON || vc == VC_LIGHT_OFF ||
-        vc == VC_FAN_ON   || vc == VC_FAN_OFF) {
+    //   「控不控设备」交给 voice.h 的 voiceCmdIsDevice() 判 —— 用范围判断，
+    //   以后再加指令不用回来改这行（老写法是一串 ||，加指令漏改就会
+    //   「设备动了但模式没切」，很难查）。
+    if (voiceCmdIsDevice(vc)) {
       if (set.mode != 1) {
         set.mode = 1;
         settingsSave(set);        // 存 NVS：断电重启也还是手动
