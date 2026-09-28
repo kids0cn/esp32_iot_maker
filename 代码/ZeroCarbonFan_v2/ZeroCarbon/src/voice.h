@@ -57,14 +57,31 @@ const unsigned long VOICE_BAUD = 115200;
 // voiceTakeCmd() 的返回值。VC_NONE = 这次没有新指令。
 enum VoiceCmd : int8_t {
   VC_NONE = -1,
-  VC_WAKE,        // 你好小丹（唤醒词）
-  VC_LIGHT_ON,    // 开灯
-  VC_LIGHT_OFF,   // 关灯
-  VC_FAN_ON,      // 开风扇
-  VC_FAN_OFF,     // 关闭风扇
-  VC_WELCOME,     // 欢迎语（模块上电时播）
-  VC_BYE,         // 休息语（退出唤醒时播）
+  VC_WAKE,        // 你好小丹（唤醒词）—— 不控设备
+
+  // ★ 下面这 8 条**都控设备**，所以**必须连着排** ——
+  //   voiceCmdIsDevice() 用「范围判断」认它们，中间要是插进一条不控设备的，
+  //   范围就会把它也圈进去（说话就白切一次模式）。加新指令时留意。
+  VC_LIGHT_ON,    // 开灯       → IN2
+  VC_LIGHT_OFF,   // 关灯       → IN2
+  VC_FAN_ON,      // 开风扇     → IN1
+  VC_FAN_OFF,     // 关闭风扇   → IN1
+  VC_DEHUM_ON,    // 开抽湿机   → IN3
+  VC_DEHUM_OFF,   // 关抽湿机   → IN3
+  VC_AC_ON,       // 开空调     → IN4
+  VC_AC_OFF,      // 关空调     → IN4
+
+  VC_WELCOME,     // 欢迎语（模块上电时播）—— 不控设备
+  VC_BYE,         // 休息语（退出唤醒时播）—— 不控设备
 };
+
+// 这条指令会不会动设备？—— main 用它决定要不要顺带切成「手动模式」。
+// ★ 用范围判断而不是一串 `||`：2026-09-28 加空调 / 抽湿机那 4 条时就吃过亏 ——
+//   `||` 写法漏改一处，症状是「说了话设备动了、但模式没切」，
+//   下一轮自动逻辑又给改回去，看着像指令没生效。范围写法加指令不用改这里。
+inline bool voiceCmdIsDevice(int8_t c) {
+  return c >= VC_LIGHT_ON && c <= VC_AC_OFF;
+}
 
 // 帧表：模块 → ESP32（类型 0x81）。bytes 必须逐字节精确匹配，见文件头说明。
 //
