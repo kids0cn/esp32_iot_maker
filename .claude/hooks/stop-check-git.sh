@@ -1,6 +1,6 @@
 #!/bin/bash
 # Stop hook: auto-commit uncommitted changes at session end
-# Project-local fallback for 物联网创客项目 (global stop-commit.sh also runs)
+# Project-local fallback (global stop-commit.sh also runs)
 
 PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 if [ -z "$PROJECT_ROOT" ]; then

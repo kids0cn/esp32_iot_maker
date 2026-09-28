@@ -1,7 +1,6 @@
 # 中学生物联网创客项目 —— 零碳新风智能家居系统（ESP32 智能家居模拟装置）
 
 > 给中学生做的**创客项目**：ESP32 作控制器，PM2.5 传感器联动风扇，太阳能 + 电池模拟供电，ESP32 开 AP 热点，连上后用 Web 页面手动/自动控制设备。
-> ⚠️ **本项目与原目录名无关**——目录名里的「原目录名」是历史遗留，别被带偏。
 
 ## 快速导航
 
@@ -27,7 +26,7 @@
 ## 代码位置
 
 ```
-代码/ZeroCarbonFan/ZeroCarbonFan.ino           # 原版 —— 提供方提供，历史存档，别改
+代码/ZeroCarbonFan/ZeroCarbonFan.ino           # 原版 —— 历史存档，别改
 代码/ZeroCarbonFan_v2/ZeroCarbon/              # ★ PlatformIO 工程
                                                #   src/main.cpp       网页热点 + 四路自动控制 + 语音
                                                #   src/*.h            各模块（light/pm25/dht11/relay/voice/settings）
