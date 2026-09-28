@@ -245,9 +245,9 @@ void parseBuffer() {
   }
 }
 
-// 按键 1~7 → 发一帧给模块，让它念一句（验反方向那根线）
+// 按键 → 发一帧给模块，让它念一句（验反方向那根线）
 void sendByKey(char key) {
-  int idx = key - '1';
+  int idx = txIndexOfKey(key);
   if (idx < 0 || idx >= TX_TABLE_LEN) return;
   Serial2.write(TX_TABLE[idx].bytes, 8);
   Serial.print("  已发送 → ");
@@ -269,7 +269,14 @@ void printHelp() {
   Serial.println("  来回试波特率 —— 换挡那几帧收进来就是错位的乱码。");
   Serial.println();
   Serial.println("── 控制台按键 ─────────────────────────────");
-  Serial.println("  1~7  发一帧给模块，让它播一句（验 ESP32→模块 那根线）");
+  Serial.println("  数字 1~9 / 0 / -   发一帧给模块，让它播一句（验 ESP32→模块 那根线）");
+  for (int i = 0; i < TX_TABLE_LEN; i++) {
+    Serial.print("    ");
+    Serial.print(TX_TABLE[i].name);
+    Serial.print("   ");
+    printHex(TX_TABLE[i].bytes, 8);
+    Serial.println();
+  }
   Serial.println("  h    再打一遍这份帮助");
   Serial.println("  收指令不用按键 —— 对着模块说话就行。");
   Serial.println();
