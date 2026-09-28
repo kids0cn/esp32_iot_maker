@@ -25,7 +25,7 @@
  *   1. 每收到一帧，**先原样打 hex**，再对照指令表打中文指令名
  *   2. 表里没有的帧照样打 hex + 各字段，不静默丢弃（换命令词后还看得见东西）
  *   3. 收到**握手帧**就自动回 ACK —— 不回的话模块会一直重发（见下面）
- *   4. 控制台按 1~7 反向发一帧让模块念一句话 —— 验的是 ESP32→模块 那根线
+ *   4. 控制台按 1~9 / 0 / - 反向发一帧让模块念一句话 —— 验的是 ESP32→模块 那根线
  *
  * ── 上电握手（2026-09-27 实测到的，很重要）──────────
  *   模块上电后会**反复**发这一帧等我们回话：
@@ -324,7 +324,7 @@ void loop() {
   while (Serial.available()) {
     char c = (char)Serial.read();
     if (c == 'h' || c == 'H') printHelp();
-    else if (c >= '1' && c <= '7') sendByKey(c);
+    else if (txIndexOfKey(c) >= 0) sendByKey(c);
     else if (c != '\n' && c != '\r' && c != ' ') {
       Serial.print("  未知按键 '");
       Serial.print(c);
