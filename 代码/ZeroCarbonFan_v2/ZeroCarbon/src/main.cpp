@@ -352,7 +352,9 @@ void setup() {
   Serial.print("  TX=GPIO");
   Serial.print(VOICE_TX_PIN);
   Serial.println("  115200");
-  Serial.println("        能听懂的指令：你好小丹 / 开灯 / 开风扇 / 关灯 / 关闭风扇");
+  Serial.println("        能听懂的指令：开灯 / 关灯 / 开风扇 / 关闭风扇 /"
+                 " 开抽湿机 / 关抽湿机 / 开空调 / 关空调");
+  Serial.println("        （同义说法：打开风扇、关风扇 —— 和上面发的是同一帧）");
   Serial.println("        上电握手（A5 FA 00 80 0A 00 21 FB）会自动回 ACK");
   Serial.println("        语音指令执行后自动切「手动」模式，免得被自动逻辑改回去");
   Serial.println();
