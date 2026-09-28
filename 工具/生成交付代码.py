@@ -263,8 +263,8 @@ def main() -> int:
     print()
     verify()
 
-    total_a = sum(a for _, a, _ in stats)
-    total_b = sum(b for _, b, _ in stats)
+    total_a = sum(s[1] for s in stats)      # 注意别写成 `for _, a, _ in stats` ——
+    total_b = sum(s[2] for s in stats)      # 那样两个 _ 会撞名，b 会取到第 1 列
     print(f"\n源码 {total_a} 行 → 交付 {total_b} 行"
           f"（去掉 {100 - total_b * 100 // total_a}% 的注释和空行）")
     return 0
